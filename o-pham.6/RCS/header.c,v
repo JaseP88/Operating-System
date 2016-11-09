@@ -1,0 +1,785 @@
+head	1.9;
+access;
+symbols;
+locks
+	o-pham:1.9; strict;
+comment	@ * @;
+
+
+1.9
+date	2016.04.29.21.03.43;	author o-pham;	state Exp;
+branches;
+next	1.8;
+
+1.8
+date	2016.04.29.05.12.38;	author o-pham;	state Exp;
+branches;
+next	1.7;
+
+1.7
+date	2016.04.29.00.17.27;	author o-pham;	state Exp;
+branches;
+next	1.6;
+
+1.6
+date	2016.04.28.04.56.50;	author o-pham;	state Exp;
+branches;
+next	1.5;
+
+1.5
+date	2016.04.27.03.21.41;	author o-pham;	state Exp;
+branches;
+next	1.4;
+
+1.4
+date	2016.04.23.09.38.23;	author o-pham;	state Exp;
+branches;
+next	1.3;
+
+1.3
+date	2016.04.22.02.03.40;	author o-pham;	state Exp;
+branches;
+next	1.2;
+
+1.2
+date	2016.04.22.00.25.10;	author o-pham;	state Exp;
+branches;
+next	1.1;
+
+1.1
+date	2016.04.22.00.23.31;	author o-pham;	state Exp;
+branches;
+next	;
+
+
+desc
+@@
+
+
+1.9
+log
+@done
+@
+text
+@#include "header.h"
+
+#include <sys/sem.h>
+#include <sys/shm.h>
+#include <sys/wait.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <signal.h>
+#include <errno.h>
+
+s_m *shared_struct;
+
+struct sembuf WAIT = {0,-1,0};
+struct sembuf SIGNAL = {0,1,0};
+
+static fifo *head = NULL;
+static fifo *tail = NULL;
+
+////// Random Generator Function ////////
+/////////////////////////////////////////
+int rand_gen(int min, int max) {
+    int num;
+    num = (rand()%(max-min+1))+min;
+    return num;
+}
+
+//////// Add value to Fifo queue /////////
+//////////////////////////////////////////
+void addToDeviceQ(mr m) {
+    fifo *new;
+
+    /////// Create a New Node to Insert Val //////////
+    new = (fifo *)malloc(sizeof(fifo *));
+    if (new == NULL) {
+        perror("ERROR");
+        exit (1);
+    }
+    new->mr.process = m.process;
+    new->mr.page = m.page;
+    new->mr.action = m.action;
+    new->next = NULL;
+
+    //////// If Head is Empty Assign the New Node To Head ////////
+    //////// Else Put the New Node to Tail  //////////////////////
+    if(head == NULL)
+        head = new;
+    else
+        tail->next = new;
+
+    //////// Update Tail to become new Node ////////////
+    tail = new;
+}
+
+/////// Return the Firt Values Entered ///////////
+//////////////////////////////////////////////////
+mr getReferencingP() {
+    mr returnVal, emptyVal;
+    fifo *temp;
+
+    emptyVal.process = -1;
+
+    ///// If there is an Element in Queue return that value ///////
+    ///// and set head as the next value /////////////////////////
+    if(head!=NULL) {
+        returnVal = head->mr;
+        temp = head->next;
+        free(head);
+        head = NULL;
+        head = temp;
+    }
+    
+    else {
+        printf("no Process in queue\n");
+        return emptyVal;
+    }
+
+    return returnVal;
+}
+
+///////// Loops throught the Fifo structure and reset all nodes /////
+/////////////////////////////////////////////////////////////////////
+void clearDeviceQ() {
+    fifo *temp;
+    tail = NULL;
+    while(head != NULL) {
+        temp = head->next;
+        free(head);
+        head = NULL;
+        head = temp;
+    }
+}
+
+int isDeviceQEmpty() {
+    if(head==NULL)
+        return YES;
+    else
+        return NO;
+}
+
+///// Initialize Semaphore //////
+/////////////////////////////////
+int seminit(int semid,  int semnum, int semvalue) {
+    union semun {
+        int val;
+        struct semid_ds *buf;
+        unsigned short *array;
+    } arg;
+    arg.val = semvalue;
+    return semctl(semid,semnum,SETVAL,arg);
+}
+
+
+///// Semaphore Wait Function /////
+///////////////////////////////////
+void semwait(int semID, int semnum) {
+    WAIT.sem_num = semnum;
+    if(semop(semID,&WAIT,1) == -1) {
+        perror("semop wait error");
+        exit(1);
+    }
+return;
+}
+
+///// Semaphore Signal Function /////
+/////////////////////////////////////
+void semsignal(int semID, int semnum) {
+    SIGNAL.sem_num = semnum;
+    if(semop(semID,&SIGNAL,1) == -1) {
+        perror("semop signal error");
+        exit(1);
+    }
+return;
+}
+
+//////// Get Page Routine Function /////////
+////////////////////////////////////////////
+
+
+
+
+
+
+///// Wait Function to Sucessfully Exit Child ///////
+/////////////////////////////////////////////////////
+pid_t r_wait(int *stat_loc) {
+    int retval;
+
+    while(((retval = wait(stat_loc)) == -1) && (errno == EINTR));
+    return retval;
+}
+
+//// Function to Set Bits in Bit Vectors ///////////
+////////////////////////////////////////////////////
+void setBit(int A[], int k) {
+    A[k/32] |= 1 << (k%32);
+}
+
+//// Function To Clear the Bits in the Bit Vectors to 0 ///////
+///////////////////////////////////////////////////////////////
+void clearBit(int A[], int k) {
+    A[k/32] &= ~(1 << (k%32));
+}
+
+//// Function to Return Bit Value //////
+////////////////////////////////////////
+int testBit(int A[], int k) {
+    return ( (A[k/32] & (1 << (k%32) )) != 0 );     
+}
+
+//// Function Used To Find Free Index To Use ///////////
+////////////////////////////////////////////////////////
+int index_open(s_m *s) {
+    int i;
+    for(i=0;i<18;i++) {
+        if(s->taken[i] == NO)
+            return i;
+    }
+    return -1;
+}
+
+///// Function to Find free Index in Reference Array ///////
+////////////////////////////////////////////////////////////
+int free_ref(s_m *s) {
+    int i;
+    for(i=0;i<20; i++) {
+        if(s->reference[i].process == -1)
+            return i;
+    }
+    //fprintf(stderr,"No room in reference array\n");
+    return -1;
+}
+
+/////// Function to Find an Open Frame in Bit vector ///////
+////////////////////////////////////////////////////////////
+int free_frame(s_m *s) {
+    int i, f;
+    for(i=0; i<256; i++) {  
+        f = testBit(s->bit_vector,i);
+        if (f == 0)
+            return i;
+    }
+    return -1;
+}
+
+//// Function To Signal That a Child Process Has Exited ////
+////////////////////////////////////////////////////////////
+void chi_exit() {
+    pid_t childPID;
+
+    while(childPID = waitpid(-1,NULL,WNOHANG))
+        if((childPID == -1)&&(errno != EINTR))
+            break;
+}
+
+//// Function to Handle an Interrupt Signal //////
+//////////////////////////////////////////////////
+void exit_proc(int i) {
+    key_t shmkey;
+    if((shmkey = ftok("/classes/OS/o-pham/o-pham.6",100)) == (key_t)-1) {
+        perror("ftok error");
+        exit(1);
+    }
+    int shmID;
+    s_m *sm;
+
+    shmID = shmget(shmkey,sizeof(s_m),IPC_CREAT | 0666);
+    if(shmID<0) {
+        perror("shmget failed");
+        exit(1);
+    }
+
+    sm = (s_m *)shmat(shmID,(void *)0,0);
+    if(sm<(s_m *) (0)) {
+        perror("shmat failed");
+        exit(1);
+    }
+
+    shared_struct = sm;
+
+    ///////// Set Up Semaphore ///////////////
+    //////////////////////////////////////////
+    int semID;
+    key_t semkey;
+    if ((semkey = ftok("/classes/OS/o-pham/o-pham.6",101)) == (key_t)-1) {
+        perror("ftok error");
+        exit(1);
+    }
+    semID = semget(semkey,19,IPC_CREAT | 0666);
+    if (semID<0) {
+        perror("semget failed");
+        exit(1);
+    }
+
+    //////////// The Handler /////////////////
+    //////////////////////////////////////////
+    signal(SIGINT, exit_proc);  //the signal
+
+	printf("throughput is %d for %d:%09d\n",sm->throughput,sm->lclock.sec,sm->lclock.nan);
+
+    printf("interrupt signal ^c received, master and slave dieing\n");
+    printf("shared memory and semaphore are deallocating..\n");
+
+    if(shmctl(shmID,IPC_RMID,NULL) == -1) {
+        perror("failed to remove shared memory");
+        exit(1);
+    }
+
+    if(semctl(semID,0,IPC_RMID) == -1) {
+        perror("failed to remove semaphores");
+        exit(1);
+    }
+    exit(1);
+}
+
+//////////// Function For Page To Write to Disk /////////////
+/////////////////////////////////////////////////////////////
+void disk(char *filename, int proc, int page) {
+	FILE *fp;
+	
+	if(filename == NULL) {
+    	perror("error");
+   		return;
+    }
+
+    if((fp=fopen(filename,"a")) == NULL) {
+        perror("error");
+        return;
+    }
+
+    fprintf(fp,"process %d page %d put to disk\n",proc,page);
+    fclose(fp);
+}
+
+//////////// Function to Log terminated Process ////////////
+////////////////////////////////////////////////////////////
+void savelog(char *filename, int p, unsigned int eat, unsigned int tt, unsigned int wait_time, unsigned int cpu) {
+//void savelog(char *filename, int p, unsigned int eat) {	
+	FILE *fp;
+
+	if(filename == NULL) {
+		perror("Filename ERROR");
+		return;
+	}
+
+	if((fp=fopen(filename,"a")) == NULL) {
+        perror("fopen error");
+        return;
+    }
+
+	fprintf(fp,"process %d, eat:%d, cpu_u:%d, wait time:%d, turnaround time:%d\n",p,eat,cpu,wait_time,tt);
+	//fprintf(fp,"process %d, eat:%d\n",p,eat);
+	fclose(fp);
+}
+
+
+////////////// Function to Sync The Clock /////////////
+///////////////////////////////////////////////////////
+void sync_clock(unsigned int nan,s_m *sm) {
+    unsigned int diff;
+    unsigned int update;
+	sm->lclock.nan_counter += nan;
+    update = sm->lclock.nan+nan;
+    if (update == 1000000000) {
+        sm->lclock.sec++;
+        sm->lclock.nan = 0;
+    }
+    if (update > 1000000000) {
+            sm->lclock.sec++;
+            diff = update - 1000000000;
+            sm->lclock.nan = diff;
+            //fprintf(stderr,"%d second\n",sm->lclock.sec);
+    }
+    else
+        sm->lclock.nan = update;
+    
+}
+
+///////////////////////////////////////////////////
+///////////////// Daemon Function /////////////////
+///////////////////////////////////////////////////
+void run_daemon (s_m *s) {
+
+    int i, j, k;
+    int n;
+    unsigned int oldest_counter;
+    int oldest_page, oldest_process;
+    int frame_counter = 0;
+    int delimit;
+    
+    /////////// First checks amount used in frame ///////////
+    /////////////////////////////////////////////////////////
+    for(i=0; i<256; i++) //find the total used frames
+        frame_counter += testBit(s->bit_vector,i);
+	//fprintf(stderr,"frame_counter is %d\n",frame_counter);
+
+    
+    oldest_counter = 3000000000; //problem of overflow
+
+    n = frame_counter * 0.05; //free n amount of frames
+
+
+    if(frame_counter >= 230) { //sweep now!
+		for(i=0; i<18; i++) {
+            delimit = s->p[i].page_delimit; //get the page delimiter (max requirement) for each process
+            for(j=0; j<delimit; j++) 
+                if(s->p[i].pg_t[j].old == YES) {
+					if(s->p[i].pg_t[j].dirty_bit == 1) { //if page replacing has a dirty bit
+						disk("disk",i,j); //write to disk
+                    	s->p[i].pg_t[j].dirty_bit = 0;	//reset the dirty_bit
+					}
+                    s->p[i].pg_t[j].val_bit = 0; //reset valid bits
+                    clearBit(s->bit_vector,s->p[i].pg_t[j].frame_addr); //free the frame
+                    s->p[i].pg_t[j].old == NO; //reset
+                }
+        }
+
+        for(k=0; k<n; k++) {// repeat n amount of times
+            for(i=0; i<18; i++) {
+                delimit = s->p[i].page_delimit; //get the page delimiter (max requirement) for each process
+                for(j=0; j<delimit; j++) 
+     				if((s->p[i].pg_t[j].ref_counter < oldest_counter) && (s->p[i].pg_t[j].val_bit == 1) && (s->p[i].pg_t[j].old == NO)) {
+                        oldest_counter = s->p[i].pg_t[j].ref_counter;
+                        oldest_page = j;
+                        oldest_process = i;
+                    }
+            }
+
+            s->p[oldest_process].pg_t[oldest_page].val_bit = 0; //reset valid bits
+			s->p[oldest_process].pg_t[oldest_page].old = YES;
+            return;
+        }
+    }
+	else
+		return;
+}
+@
+
+
+1.8
+log
+@everythign works
+@
+text
+@d259 2
+d295 20
+d322 1
+@
+
+
+1.7
+log
+@*** empty log message ***
+@
+text
+@d57 1
+a57 1
+mr getRequestingP() {
+d274 21
+d330 1
+a330 1
+    for(i=0; i<256; i++) 
+d335 1
+a335 1
+    oldest_counter = 2000000000; //uhhhhhhhhhhhh
+d339 1
+d341 13
+d358 2
+a359 2
+                for(j=0; j<delimit; j++)
+     				if((s->p[i].pg_t[j].ref_counter < oldest_counter) && (s->p[i].pg_t[j].val_bit == 1)) {
+a365 5
+            //debug
+           // fprintf(stderr,"process with oldest page is %d and its page is %d\n",oldest_process,oldest_page);
+            //remove the page from frame;
+
+            s->p[oldest_process].pg_t[oldest_page].dirty_bit = 0;
+d367 1
+a367 1
+            clearBit(s->bit_vector,s->p[oldest_process].pg_t[oldest_page].frame_addr); //free the frame
+@
+
+
+1.6
+log
+@not workign daemon
+@
+text
+@d122 1
+d133 1
+d186 1
+a186 1
+    for(i=0;i<50;i++) {
+d249 1
+a249 1
+    semID = semget(semkey,2,IPC_CREAT | 0666);
+d304 1
+a304 1
+    int frame_counter;
+d311 2
+d324 1
+a324 1
+                    if((s->p[i].pg_t[j].ref_counter < oldest_counter) && (s->p[i].pg_t[j].val_bit == 1) && (s->p[i].pg_t[j].dirty_bit == 0)) { //if 
+d332 1
+a332 1
+            fprintf(stderr,"process with oldest page is %d and its page is %d\n",oldest_process,oldest_page);
+d338 1
+a338 1
+            
+d341 3
+a343 1
+}@
+
+
+1.5
+log
+@changes in sublime
+@
+text
+@d30 1
+a30 1
+void addToDeviceQ(int n) {
+d39 3
+a41 1
+    new->val = n;
+d57 2
+a58 2
+int getRequestingP() {
+    int returnVal;
+d61 2
+d66 1
+a66 1
+        returnVal = head->val;
+d75 1
+a75 1
+        return -1;
+d130 1
+a130 1
+		exit(1);
+d177 1
+d184 2
+a185 2
+    for(i=0;i<18;i++) {
+        if(s->reference[i] == -1)
+d188 2
+d201 1
+d276 2
+a277 2
+	unsigned int update;
+	update = sm->lclock.nan+nan;
+d288 3
+a290 3
+	else
+		sm->lclock.nan = update;
+	
+d292 46
+@
+
+
+1.4
+log
+@added Fifo quee.
+@
+text
+@d1 1
+a1 9
+/*$Author: o-pham $*/
+/*$Date: 2016/04/22 02:03:40 $*/
+/*$Log: header.c,v $
+ *Revision 1.3  2016/04/22 02:03:40  o-pham
+ *good foundation of modules and functions
+ *
+ *Revision 1.2  2016/04/22 00:25:10  o-pham
+ *implemented some functions
+ **/
+a2 1
+#include "header.h"
+d30 2
+a31 2
+void addToQ(int n) {
+	fifo *new;
+d33 2
+a34 2
+	/////// Create a New Node to Insert Val //////////
+	new = (fifo *)malloc(sizeof(fifo *));
+d39 2
+a40 2
+	new->val = n;
+	new->next = NULL;
+d42 6
+a47 6
+	//////// If Head is Empty Assign the New Node To Head ////////
+	//////// Else Put the New Node to Tail	//////////////////////
+	if(head == NULL)
+		head = new;
+	else
+		tail->next = new;
+d49 2
+a50 2
+	//////// Update Tail to become new Node ////////////
+	tail = new;
+d55 20
+a74 17
+int getFifoVal() {
+	int returnVal;
+	fifo *temp;
+
+	///// If there is an Element in Queue return that value ///////
+	///// and set head as the next value /////////////////////////
+	if(head!=NULL) {
+		returnVal = head->val;
+		temp = head->next;
+		head = NULL;
+		head = temp;
+	}
+	
+	else
+		printf("no element in queue\n");
+	
+	return returnVal;
+d79 2
+a80 2
+void clearFifo() {
+ 	fifo *temp;
+d84 1
+d90 7
+d113 5
+a117 5
+	WAIT.sem_num = semnum;
+	if(semop(semID,&WAIT,1) == -1) {
+		perror("semop wait error");
+		exit(1);
+	}
+d123 5
+a127 4
+	SIGNAL.sem_num = semnum;
+	if(semop(semID,&SIGNAL,1) == -1) {
+		perror("semop signal error");
+	}
+a131 6
+void get_page(int semID, int p, s_m *sm) {
+	sm->reference_flag = RAISE;
+	sm->reference_index = p;
+	sm->reference_page = rand_gen(0,sm->p[p].page_delimit);
+	semwait(semID,p);
+}
+d150 1
+a150 1
+	A[k/32] |= 1 << (k%32);
+d156 1
+a156 1
+	A[k/32] &= ~(1 << (k%32));
+d162 1
+a162 1
+	return ( (A[k/32] & (1 << (k%32) )) != 0 ); 	
+d168 26
+a193 5
+	int i;
+	for(i=0;i<18;i++) {
+		if(s->taken[i] == NO)
+			return i;
+	}
+d209 13
+a221 13
+	key_t shmkey;
+	if((shmkey = ftok("/classes/OS/o-pham/o-pham.6",100)) == (key_t)-1) {
+		perror("ftok error");
+		exit(1);
+	}
+	int shmID;
+	s_m *sm;
+
+	shmID = shmget(shmkey,sizeof(s_m),IPC_CREAT | 0666);
+	if(shmID<0) {
+		perror("shmget failed");
+		exit(1);
+	}
+d223 5
+a227 5
+	sm = (s_m *)shmat(shmID,(void *)0,0);
+	if(sm<(s_m *) (0)) {
+		perror("shmat failed");
+		exit(1);
+	}
+d229 1
+a229 1
+	shared_struct = sm;
+d231 2
+a232 2
+	///////// Set Up Semaphore ///////////////
+	//////////////////////////////////////////
+d235 1
+a235 1
+    if ((semkey = ftok("/classes/OS/o-pham/o-pham.5",101)) == (key_t)-1) {
+d245 2
+a246 2
+	//////////// The Handler /////////////////
+	//////////////////////////////////////////
+d264 20
+@
+
+
+1.3
+log
+@good foundation of modules and functions
+@
+text
+@d2 1
+a2 1
+/*$Date: 2016/04/22 00:25:10 $*/
+d4 3
+d21 2
+d26 5
+a30 1
+/**** random function generator *****/
+d37 57
+d95 2
+a96 1
+/**** initialize semaphore *****/
+d107 36
+a142 1
+/**** use to wait for a terminating child ****/
+d150 2
+a151 2
+/*** function to set the bits in each int array ***/
+/*** used for bit vectors ***/
+d156 2
+a157 1
+/*** function to clear the bits to 0 ***/
+d162 2
+a163 1
+/*** Use for debugging bitvectors ****/
+d168 13
+a180 2
+/*** function oss used to call when a child terminates ***/
+void chi_exit(void) {
+d187 59
+@
+
+
+1.2
+log
+@implemented some functions
+@
+text
+@d1 6
+a6 3
+/*$Author:$*/
+/*$Date:$*/
+/*$Log:$*/
+d54 1
+d59 13
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d1 4
+@

@@ -1,0 +1,442 @@
+head	1.7;
+access;
+symbols;
+locks
+	o-pham:1.7; strict;
+comment	@ * @;
+
+
+1.7
+date	2016.04.29.21.03.58;	author o-pham;	state Exp;
+branches;
+next	1.6;
+
+1.6
+date	2016.04.29.05.13.07;	author o-pham;	state Exp;
+branches;
+next	1.5;
+
+1.5
+date	2016.04.29.00.17.40;	author o-pham;	state Exp;
+branches;
+next	1.4;
+
+1.4
+date	2016.04.28.04.57.05;	author o-pham;	state Exp;
+branches;
+next	1.3;
+
+1.3
+date	2016.04.27.03.22.19;	author o-pham;	state Exp;
+branches;
+next	1.2;
+
+1.2
+date	2016.04.23.21.28.59;	author o-pham;	state Exp;
+branches;
+next	1.1;
+
+1.1
+date	2016.04.22.02.04.22;	author o-pham;	state Exp;
+branches;
+next	;
+
+
+desc
+@nothing done yet
+@
+
+
+1.7
+log
+@done
+@
+text
+@//////////////////////////////////////////////////////
+/////////////////// PROCESS.C ////////////////////////
+//////////////////////////////////////////////////////
+
+#include "header.h"
+
+#include <sys/sem.h>
+#include <sys/shm.h>
+#include <signal.h>
+#include <time.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+
+s_m *shared_struct;
+
+int main(int argc, char *argv[]) {
+    
+    srand(time(NULL));
+    int i;
+    
+    ///////////// Set up Shared Memory ///////////////////
+    //////////////////////////////////////////////////////
+    key_t shmkey;
+    if ((shmkey = ftok("/classes/OS/o-pham/o-pham.6",100)) == (key_t)-1) {
+        perror("ftok error");
+        exit(1);
+    }
+    int shmID;
+    s_m *sm;
+
+    shmID = shmget(shmkey,sizeof(s_m),IPC_CREAT | 0666);
+    if (shmID<0) {
+        perror("shmget failed");
+        exit(1);
+    }
+
+    sm = (s_m *)shmat(shmID,(void *)0,0);
+    if (sm<(s_m *)(0)) {
+        perror("shmat failed");
+        exit(1);
+    }
+
+    shared_struct = sm;
+
+    ////////////// Set up Semaphores ////////////////////
+    /////////////////////////////////////////////////////
+    int semID;
+    key_t semkey;
+    if ((semkey = ftok("/classes/OS/o-pham/o-pham.6",101)) == (key_t)-1) {
+        perror("ftok error");
+        exit(1);
+    }
+    semID = semget(semkey,19,IPC_CREAT | 0666);
+    if (semID<0) {
+        perror("semget failed");
+        exit(1);
+    }
+
+    //////////////// Process Initialization ///////////////
+    ///////////////////////////////////////////////////////
+    int p = atoi(argv[1]);                      //process index 
+    int process = sm->process_num;              //current process number
+    int delimit = rand_gen(0,32);               //the max page amount for this process
+    sm->p[p].page_delimit = delimit;            //set page limit for this process
+    
+    for(i=0; i<delimit; i++) {                  //upon process creation all.. set all members of a page to 0
+        sm->p[p].pg_t[i].action = 0;
+		sm->p[p].pg_t[i].val_bit = 0;           //val bit 0 is page not in frame
+        sm->p[p].pg_t[i].dirty_bit = 0;         //dirty bit set to 0
+        sm->p[p].pg_t[i].ref_counter = 0;   
+		sm->p[p].pg_t[i].old = NO;
+    } 
+
+    sm->p[p].start_time = sm->lclock.nan_counter;   
+	sm->p[p].cpu_util = 0;
+	sm->p[p].wait_time = 0;
+	sm->p[p].turnaround = 0;
+
+    //sm->p[p].start_time_nan = sm->lclock.nan;
+    
+    //fprintf(stderr,"process %d page requirement %d forked at %d:%09d\n",sm->process_num,delimit,sm->lclock.sec,sm->lclock.nan);
+
+
+    //////////////// Start Simulation Loop ////////////////
+    ///////////////////////////////////////////////////////
+    int ref_index;
+    int mem_ref;
+    int shouldTerm;
+    mem_ref = rand_gen(900,1100);
+    
+	for(;;) {
+
+
+        /////////// Checks Memory Reference If Process Should Term /////////
+        ////////////////////////////////////////////////////////////////////
+        if(mem_ref<=0) {
+            shouldTerm = rand_gen(NO,YES);
+            if(shouldTerm == YES) {
+				//fprintf(stderr,"process %d is done\n",process);
+    			for(i=0; i<delimit; i++) { //go through out all pages
+        			int del_frame;
+					sm->p[p].pg_t[i].action = 0;
+        			sm->p[p].pg_t[i].val_bit = 0; //reset valid bit
+					sm->p[p].pg_t[i].dirty_bit = 0;
+					sm->p[p].pg_t[i].ref_counter = 0;
+        			del_frame = sm->p[p].pg_t[i].frame_addr; 
+       				clearBit(sm->bit_vector,del_frame); //remove from bit vector
+   	 			}
+				sm->p[p].page_delimit = 0; // reset the page requirement
+    			sm->taken[p] = NO;
+    			sm->process_running--;
+				
+				sm->p[p].end_time = sm->lclock.nan_counter;
+				sm->p[p].turnaround = sm->p[p].end_time - sm->p[p].start_time;
+				sm->p[p].cpu_util = sm->p[p].turnaround - sm->p[p].wait_time;
+				
+				sm->throughput++;
+
+				savelog("log",process,sm->p[p].eat,sm->p[p].turnaround,sm->p[p].wait_time,sm->p[p].cpu_util);
+				
+				sleep(1);
+				exit(1);
+			}
+
+            else
+                mem_ref = rand_gen(900,1100);
+        }
+    
+
+        ////////// Makes Memory Reference ///////////////
+        /////////////////////////////////////////////////
+        
+        //this is the getpage routine
+
+        sm->p[p].num_of_ref++;
+		sm->p[p].mat_start = sm->lclock.nan_counter; //start memory access time
+
+        int pg = rand_gen(0,delimit); //page that is being referenced
+        int actn = rand_gen(READ,WRITE); //reading or writting action
+
+		sm->p[p].referencing = YES;
+		sm->p[p].page = pg;
+		sm->p[p].action = actn;
+		//then wait...
+
+		sm->p[p].wait_start = sm->lclock.nan_counter;
+        semwait(semID,p); //after making a reference wait;
+        sm->p[p].wait_stop = sm->lclock.nan_counter;
+		sm->p[p].wait_time += (sm->p[p].wait_stop - sm->p[p].wait_start);
+
+		sync_clock(1,sm);
+        mem_ref--;
+    }//End of simulation
+
+return 0;
+}
+@
+
+
+1.6
+log
+@everything eoworks
+@
+text
+@d75 6
+a80 2
+    sm->p[p].start_time_sec = sm->lclock.sec;   
+    sm->p[p].start_time_nan = sm->lclock.nan;
+d82 1
+a82 1
+    fprintf(stderr,"process %d page requirement %d forked at %d:%09d\n",sm->process_num,delimit,sm->lclock.sec,sm->lclock.nan);
+d100 1
+a100 1
+				fprintf(stderr,"process %d is done\n",process);
+d113 9
+d136 3
+d147 1
+d149 3
+a151 1
+        
+@
+
+
+1.5
+log
+@*** empty log message ***
+@
+text
+@d72 1
+d126 1
+a126 1
+		sm->p[p].requesting = YES;
+a130 4
+
+//fprintf(stderr,"page_addr: %d | page_delimit: %d | delimit: %d\n",sm->p[p].page_addr,sm->p[p].page_delimit,delimit);
+//fprintf(stderr,"process %d page_addr is %d\n",p,sm->p[p].page_addr);
+       
+a132 1
+
+@
+
+
+1.4
+log
+@not workign damon
+@
+text
+@d54 1
+a54 1
+    semID = semget(semkey,2,IPC_CREAT | 0666);
+a65 1
+    //delimit = sm->p[p].page_delimit;          //set local delimit for this p
+d68 2
+a69 1
+        sm->p[p].pg_t[i].val_bit = 0;           //val bit 0 is page not in frame
+d77 1
+a77 1
+    fprintf(stderr,"process %d requirement %d forked at %d:%09d\n",sm->process_num,delimit,sm->lclock.sec,sm->lclock.nan);
+d86 2
+a87 2
+    //while(mem_ref > 0) {
+    for(;;) {
+d95 17
+a111 3
+                break; //break out of for loop
+                fprintf(stderr,"should break\n");
+            }
+a123 10
+        mr mr;
+        mr.process = p;
+        mr.page = pg;
+        mr.action = actn;
+
+        ref_index = free_ref(sm); //returns a free index in the reference array
+        if(ref_index == -1) {
+            fprintf(stderr,"Something went wrong No room left in ref array\n");
+            exit(1);
+        }
+d125 4
+a128 1
+        sm->reference[ref_index] = mr; //sends the data into the reference array
+a133 2
+        //fprintf(stderr,"%d waiting\n",p);
+        //sleep(1);
+d135 1
+a135 1
+         
+d137 1
+a137 2
+        sync_clock(1,sm);
+        sm->rand_fork_time--;
+a140 8
+    fprintf(stderr,"process %d is done\n",p+1);
+    for(i=0; i<delimit; i++) {
+        int del_frame;
+        sm->p[p].pg_t[i].val_bit = 0;
+        del_frame = sm->p[p].pg_t[i].frame_addr;
+        clearBit(sm->bit_vector,del_frame);
+    }
+
+d142 1
+a142 1
+}@
+
+
+1.3
+log
+@sublime changes.
+@
+text
+@d64 3
+a66 3
+    int delimit;
+    sm->p[p].page_delimit = rand_gen(0,32);     //set page limit
+    delimit = sm->p[p].page_delimit;            //set local delimit for this p
+d68 5
+a72 5
+    for(i=0; i<delimit; i++) {                  //upon process creation all..
+        sm->p[p].pg_t[i].val_bit = 0;           //page not in frame
+    	sm->p[p].pg_t[i].dirty_bit = 0;			//dirty bit set to 0
+		sm->p[p].pg_t[i].counter = 0;
+	} 
+d84 1
+d87 15
+a101 1
+	for(;;) {
+d107 8
+a114 2
+        sm->daemon_flag = RAISE;
+        //semwait(semID,p);
+d116 8
+a123 1
+        sm->p[p].page_addr = rand_gen(0, sm->p[p].page_delimit); //page being reference into pcb
+d126 3
+a128 4
+        sm->p[p].page_action = rand_gen(READ,WRITE); //adds the action for that adress
+        sm->reference[ref_index] = p; //adds process into reference array
+		//fprintf(stderr,"%d waiting\n",p);
+		//sleep(1);
+d137 8
+d146 1
+a146 1
+}
+@
+
+
+1.2
+log
+@*** empty log message ***
+@
+text
+@a0 4
+/*$Author:$*/
+/*$Date:$*/
+/*$Log:$*/
+
+d18 6
+a23 5
+	
+	srand(time(NULL));
+
+	///////////// Set up Shared Memory ///////////////////
+	//////////////////////////////////////////////////////
+d46 2
+a47 2
+	////////////// Set up Semaphores ////////////////////
+	/////////////////////////////////////////////////////
+d60 15
+a74 6
+	//////////////// Process Initialization ///////////////
+	///////////////////////////////////////////////////////
+	int p = atoi(argv[1]);						//process index 
+    int process = sm->process_num;				//current process number
+	sm->p[p].page_delimit = rand_gen(0,32);		//set page limit
+	sm->p[p].start_time_sec = sm->lclock.sec;	
+d76 2
+a77 5
+	
+	fprintf(stderr,"process %d forked at %d:%09d\n",sm->process_num,sm->lclock.sec,sm->lclock.nan);
+
+/*
+    //semsignal(semID,18);
+a78 7
+    //Only allows 1 process to run with OSS
+    if(sm->there_is_one == YES)
+        semwait(semID,p);
+    else {
+        sm->there_is_one = YES;
+    }
+*/
+d82 5
+a86 9
+    for(;;) {
+
+        ////////// Sync The Logic Clock /////////////
+        /////////////////////////////////////////////
+        if (sm->lclock.nan >= 999999999) {
+            sm->lclock.nan = 0;
+            sm->lclock.sec++;
+            //fprintf(stderr,"%d second\n",sm->lclock.sec);
+        }
+d90 14
+a103 10
+  
+      /*do get_page routine here
+        sm->reference_index = p; //passes its index into shared memory
+        sm->reference_page = rand_gen(0, sm->p[p].page_delimit); //passes the page it referencing
+        semwait(semID,p); //then wait
+
+*/
+
+
+		
+d105 1
+a105 1
+        sm->lclock.nan++;
+d107 1
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d4 111
+@

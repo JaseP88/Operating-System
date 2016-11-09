@@ -1,0 +1,24 @@
+Jason Pham
+HW6
+
+./oss To start
+
+
+oss initializes all structures that is needed
+oss will fork children at random interval based on logical clock.
+children will spawn and initializes its information (ie. max page requirements, #of memory references)
+children will make a reference to one of its page and throw a reference flag then wait
+oss will detect this flag and depending on the page info (its valid/invalid bit, dirty bit, counter)
+oss will either throw it into a device queue to put into the system frame or ignore it if no page fault
+oss will also run a "daemon" routine in which it detects if the system frame is running low.
+the daemon will then implement the LRU algorithm to pick the oldest page with valid bits off to 
+take off of the system frame.
+if daemon is to replace a page with a dirty bit set then it "writes to" a file called device
+oss then signals the child process to start up again.
+
+after so many referencees children can decide to terminate
+if it does terminate its information such as effective access time, cpu utilization, wait time, etc
+will be logged into a file called "log"
+
+after 3 second logical clock time the oss will end and display the throughput
+or if an interrupt is signaled then it gives the throuput for the amount of time ran

@@ -1,0 +1,432 @@
+head	1.8;
+access;
+symbols;
+locks
+	o-pham:1.8; strict;
+comment	@ * @;
+
+
+1.8
+date	2016.04.29.21.03.48;	author o-pham;	state Exp;
+branches;
+next	1.7;
+
+1.7
+date	2016.04.29.05.12.53;	author o-pham;	state Exp;
+branches;
+next	1.6;
+
+1.6
+date	2016.04.29.00.17.32;	author o-pham;	state Exp;
+branches;
+next	1.5;
+
+1.5
+date	2016.04.28.04.56.36;	author o-pham;	state Exp;
+branches;
+next	1.4;
+
+1.4
+date	2016.04.27.03.22.00;	author o-pham;	state Exp;
+branches;
+next	1.3;
+
+1.3
+date	2016.04.23.09.38.36;	author o-pham;	state Exp;
+branches;
+next	1.2;
+
+1.2
+date	2016.04.22.02.03.20;	author o-pham;	state Exp;
+branches;
+next	1.1;
+
+1.1
+date	2016.04.22.00.23.22;	author o-pham;	state Exp;
+branches;
+next	;
+
+
+desc
+@@
+
+
+1.8
+log
+@done.
+@
+text
+@#include <unistd.h>
+
+#define YES 1
+#define NO 0
+#define RAISE 1
+#define DOWN 0
+#define READ 0
+#define WRITE 1
+
+
+struct sembuf WAIT;
+struct sembuf SIGNAL;
+
+////////////// Page Table Structure ////////////
+////////////////////////////////////////////////
+typedef struct page_table_structure {
+	//int delimiter; // used to cap local  process page table, dependent on size
+	unsigned short action : 1;
+	unsigned short old : 1;
+	//256k system memory each page 1k size.
+	//system can fit 256 pages, 2^8 ~ 256;
+	//8 bits used to do addressing
+	unsigned short frame_addr : 8;
+
+	//val/invalid bit indicates if the page is
+	//in memory or not in memory
+	//let 1 be in mem, 0 is not in mem
+	unsigned short val_bit : 1;
+
+	//utilize by the LRU algorithm
+	//unsigned short ref_bit : 1;
+
+	//indicates if the page has been modified
+	unsigned short dirty_bit : 1;
+
+	//???
+	unsigned int ref_counter; 
+} page_t;
+
+
+/////////// Process Structure //////////////
+////////////////////////////////////////////
+typedef struct process_structure {
+	unsigned int start_time;
+	unsigned int end_time;
+	unsigned int turnaround;
+	
+	unsigned int wait_start;
+	unsigned int wait_stop;
+	unsigned int wait_time;
+
+	unsigned int cpu_util;
+
+	int page_delimit;
+	int referencing;
+	int page;
+	int action;
+	
+	unsigned int mat_start; //memory access time
+	unsigned int mat_stop;
+	unsigned int eat;	//effective access time
+	unsigned int num_of_ref;
+
+    page_t pg_t[32];
+} process;
+
+
+//////////// Memory Reference Struct ///////////////
+////////////////////////////////////////////////////
+typedef struct mem_ref_struct {
+	int process;
+	int page;
+	int action;
+} mr;
+
+///////////// FIFO Queue Structure /////////////////
+////////////////////////////////////////////////////
+typedef struct fifo_struct {
+    mr mr; //contains the reference from each process **/process/page/action
+    struct fifo_struct *next;
+} fifo;
+
+
+///////// Shared Memory Structure //////////////
+////////////////////////////////////////////////
+typedef struct shared_memory_structure {
+	
+	//this is the bit vectors to test the system frame if taken or not
+	int bit_vector[8]; //8 index for 0-255 bits
+	process p[18];
+
+	int throughput;	
+
+	int taken[18]; //boolean array to see which index is free for new process use
+
+	int process_running; //keeps track of the total process_running at a time
+	int process_num; //keeps track of the total amount of process forked
+	
+	mr reference[20]; //reference array;
+	
+	struct logical_clock { //logical clock for the processes
+		unsigned int sec;
+		unsigned int nan;
+		unsigned int nan_counter;
+	} lclock;
+
+	struct page_clock { //logical clock for the pages
+		unsigned int page_counter;
+	} pclock;
+
+} s_m;
+
+
+//////////////////////////////////////////////////////
+/////////////// All Function Prototypes //////////////
+//////////////////////////////////////////////////////
+void clearDeviceQ();
+mr getReferencingP();
+void addToDeviceQ(mr);
+int rand_gen(int,int);
+int seminit(int,int,int);
+void semwait(int,int);
+void semsignal(int,int);
+pid_t r_wait(int *);	
+void setBit(int [], int);
+void clearBit(int [], int);
+int testBit(int [], int);
+int index_open(s_m *);
+int free_ref(s_m *);
+int free_frame(s_m *);
+void chi_exit();
+void exit_proc(int);
+void sync_clock(unsigned int,s_m *);
+int isDeviceQEmpty();
+void run_daemon(s_m *);
+void disk(char *,int,int);
+void savelog(char *,int, unsigned int, unsigned int, unsigned int, unsigned int); 
+//void savelog(char *, int, unsigned int);
+@
+
+
+1.7
+log
+@everythign works
+@
+text
+@d44 9
+a52 4
+    unsigned int waiting_time;
+    unsigned int turna_time;
+    unsigned int cpu_util;
+    int throughput;
+a53 3
+	unsigned int start_time_sec;
+	unsigned int start_time_nan;
+	
+d58 5
+d92 2
+d104 1
+d137 2
+@
+
+
+1.6
+log
+@*** empty log message ***
+@
+text
+@d19 1
+a19 1
+
+d53 1
+a53 1
+	int requesting;
+d108 1
+a108 1
+mr getRequestingP();
+d126 1
+@
+
+
+1.5
+log
+@not working dameon
+@
+text
+@d53 3
+a55 2
+	int page_addr;		//process page
+	int page_action;	//process read or write
+a84 2
+	int daemon_flag;
+
+a88 1
+	int rand_fork_time;
+d90 1
+a90 2
+	mr reference[50]; //reference array;
+	int flag;
+d125 1
+a125 1
+void run_daemon(s_m *);@
+
+
+1.4
+log
+@changes in sublime
+@
+text
+@d18 1
+a18 1
+
+d37 1
+a37 1
+	unsigned int counter; 
+d60 8
+d71 1
+a71 1
+    int val;
+d92 1
+a92 1
+	int reference[18]; //reference array;
+d111 2
+a112 2
+int getRequestingP();
+void addToDeviceQ(int);
+d128 1
+@
+
+
+1.3
+log
+@added fifo queue.
+@
+text
+@a0 10
+/*$Author: o-pham $*/
+/*$Date: 2016/04/22 02:03:20 $*/
+/*$Log: header.h,v $
+ *Revision 1.2  2016/04/22 02:03:20  o-pham
+ *good foundation or of structures
+ *
+ *Revision 1.1  2016/04/22 00:23:22  o-pham
+ *Initial revision
+ **/
+
+d7 2
+d37 1
+a37 1
+	unsigned short counter : 8;
+d53 3
+d60 9
+a68 1
+////////// Shared Memory Structure /////////////
+d75 3
+a81 3
+
+	int should_wait;
+
+d83 5
+a87 8
+	int there_is_one;
+
+	int reference_flag;
+	int reference_index;
+	int reference_page;
+
+
+	struct logical_clock {
+d91 5
+d99 1
+a99 7
+///////////// FIFO Queue Structure /////////////////
+////////////////////////////////////////////////////
+typedef struct fifo_struct {
+	int val;
+	struct fifo_struct *next;
+} fifo;
+
+d102 3
+a104 3
+void clearFifo();
+int getFifoVal();
+void addToQ(int);
+d114 2
+d118 2
+@
+
+
+1.2
+log
+@good foundation or of structures
+@
+text
+@d2 1
+a2 1
+/*$Date: 2016/04/22 00:23:22 $*/
+d4 3
+d12 6
+a17 1
+#define pageTableLimit 32
+d22 4
+a26 2
+/*** create page table structure ***/
+typedef struct page_table_structure {
+d39 1
+a39 1
+	unsigned short ref_bit : 1;
+d48 3
+a50 1
+/*** process structure ***/
+d56 6
+a61 1
+    page_t pg_t[pageTableLimit];
+d65 2
+a66 3
+
+
+/*** create shared memory structure ***/
+d72 14
+a85 1
+		
+d94 12
+a105 1
+/* function prototypes */
+d108 2
+d114 3
+a116 1
+void chi_exit(void);
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d1 6
+a6 3
+/*$Author:$*/
+/*$Date:$*/
+/*$Log:$*/
+a14 11
+/*** process structure ***/
+typedef struct process_structure {
+	unsigned int waiting_time;
+	unsigned int turna_time;
+	unsigned int cpu_util;
+	int throughput;
+	page_t pg_t[pageTableLimit];
+} process;
+
+
+
+d21 1
+a21 1
+	unsigned short frame_addr: 8;
+d26 1
+a26 1
+	unsigned short val_bit: 1;
+d29 1
+a29 1
+	unsigned short ref_bit: 1;
+d32 1
+a32 1
+	unsigned short dirty_bit: 1;
+d35 1
+a35 1
+	unsigned short counter: 8;
+d38 11
+d71 2
+a72 1
+
+@
