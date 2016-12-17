@@ -1,0 +1,359 @@
+head	1.5;
+access;
+symbols;
+locks
+	o-pham:1.5; strict;
+comment	@ * @;
+
+
+1.5
+date	2016.03.08.17.02.31;	author o-pham;	state Exp;
+branches;
+next	1.4;
+
+1.4
+date	2016.03.07.21.57.05;	author o-pham;	state Exp;
+branches;
+next	1.3;
+
+1.3
+date	2016.03.06.02.04.59;	author o-pham;	state Exp;
+branches;
+next	1.2;
+
+1.2
+date	2016.03.05.23.52.47;	author o-pham;	state Exp;
+branches;
+next	1.1;
+
+1.1
+date	2016.03.05.09.19.14;	author o-pham;	state Exp;
+branches;
+next	;
+
+
+desc
+@@
+
+
+1.5
+log
+@*** empty log message ***
+@
+text
+@/*$Author: o-pham $*/
+/*$Log: monitor.c,v $
+ *Revision 1.4  2016/03/07 21:57:05  o-pham
+ *ci slave.c
+ *ls
+ *
+ *Revision 1.3  2016/03/06 02:04:59  o-pham
+ **** empty log message ***
+ *
+ *Revision 1.2  2016/03/05 23:52:47  o-pham
+ **** empty log message ***
+ *
+ *Revision 1.1  2016/03/05 09:19:14  o-pham
+ *Initial revision
+ **/
+/*$Date: 2016/03/07 21:57:05 $*/
+#include <sys/sem.h>
+#include "monitor.h"
+#include <unistd.h>
+#include <stdlib.h>
+#include <sys/shm.h>
+#include <stdio.h>
+condition_var *cond;
+
+// operations for semop
+struct sembuf WAIT = {0,-1,0};
+struct sembuf SIGNAL = {0,1,0};
+
+/* used to initialize mutex and next (used as instance) */
+int initelement (int semid, int semnum, int semvalue) {
+	union semun {
+		int val;
+		struct semid_ds *buf;
+		unsigned short *array;
+	} arg;
+	arg.val = semvalue;
+	return semctl(semid,semnum,SETVAL,arg);
+}
+
+/* function to perform the locking wait operation using semop
+ * takes in the semaphore set element (mutex,next,sem) */
+void Pwait(int semnum) {
+	int semID;
+	key_t semkey = 101;
+	semID = semget(semkey,3,IPC_CREAT | 0666);
+	if (semID < 0) {
+		perror("semget failed in swait");
+		exit(1);
+	}
+	WAIT.sem_num = semnum;
+
+	if (semop(semID,&WAIT,1) == -1) {
+		perror("semop wait error");
+		exit(1);
+	}
+	return;
+}
+
+void Vsignal(int semnum) {
+    int semID;
+    key_t semkey = 101;
+    semID = semget(semkey,3,IPC_CREAT | 0666);
+    if (semID < 0) {
+        perror("semget failed in ssignal");
+        exit(1);
+    }
+    SIGNAL.sem_num = semnum;
+
+    if (semop(semID,&SIGNAL,1) == -1) {
+        perror("semop signal error");
+        exit(1);
+    }
+    return;
+}
+
+/* condition wait function of monitor */
+void cwait(int condition_sem) {
+	key_t shmkey = 100;		//create shared mem key
+	key_t semkey = 101;		//create semaphore set key
+	int shmID, semID;
+	condition_var *c;
+
+/* Set up the shared memory for the condition variable in monitor*/
+	shmID = shmget(shmkey, sizeof(condition_var), IPC_CREAT | 0666);
+	if (shmID < 0) {
+		perror("shmget failed in monitor.c");
+		exit(1);
+	}
+
+	c = (condition_var *)shmat(shmID, (void *)0,0);
+	if (c < (condition_var *)(0)) {
+		perror("shmat failed in monitor.c");
+		exit(1);
+	}
+
+	cond = c;
+
+/* Get the ID of semaphore set for the monitor*/
+	semID = semget(semkey,3,IPC_CREAT | 0666);
+	if (semID < 0) {
+		perror("semget failed in monitor.c");
+		exit(1);
+	}
+	
+	WAIT.sem_num = condition_sem;	// select the sem number {mutex,next,sem}
+	// perform wait
+	if (semop(semID,&WAIT,1) == -1) {
+		perror("semop WAIT error in monitor.c");
+		exit(1);
+	}
+	
+	/*setsembuf(NextSignal,next,1,0);
+	setsembuf(MutexSignal,mutex,1,0);
+	setsembuf(SemWait,sem,-1,0);
+	*/
+	cond->num_waiting++;
+	if (cond->next_count > 0) 
+		csignal(next);
+	else 
+		csignal(mutex);
+
+	cwait(sem);
+	cond->num_waiting--;
+}
+
+/* signal function of the monitor */
+void csignal(int condition_sem) {
+    key_t shmkey = 100;     //create shared mem key
+    key_t semkey = 101;     //create semaphore set key
+    int shmID, semID;
+    condition_var *c;
+
+/* Set up the shared memory for the condition variable in monitor*/
+    shmID = shmget(shmkey, sizeof(condition_var), IPC_CREAT | 0666);
+    if (shmID < 0) {
+        perror("shmget failed in monitor.c");
+        exit(1);
+    }
+
+    c = (condition_var *)shmat(shmID, (void *)0,0);
+    if (c < (condition_var *)(0)) {
+        perror("shmat failed in monitor.c");
+        exit(1);
+    }
+
+    cond = c;
+
+/* Get the ID of semaphore set for the monitor*/
+    semID = semget(semkey,3,IPC_CREAT | 0666);
+    if (semID < 0) {
+        perror("semget failed in monitor.c");
+        exit(1);
+    }
+	
+	//setsembuf(SemSignal,sem,1,0);
+	//setsembuf(NextWait,next,-1,0);
+	SIGNAL.sem_num = condition_sem;
+	if (semop(semID,&SIGNAL,1) == -1) {
+		perror("semop SIGNAL error in monitor.c");
+		exit(1);
+	}
+	if (cond->num_waiting <= 0)
+		return;
+
+	cond->next_count++;
+	csignal(sem);
+	cwait(next);
+	cond->next_count--;
+}
+@
+
+
+1.4
+log
+@ci slave.c
+ls
+@
+text
+@d3 4
+d16 1
+a16 1
+/*$Date: 2016/03/06 02:04:59 $*/
+d26 2
+a27 16
+struct sembuf WAIT = {0,-1,SEM_UNDO};
+struct sembuf SIGNAL = {0,1,SEM_UNDO};
+/*struct sembuf MutexWait[1];
+struct sembuf MutexSignal[1];
+struct sembuf NextWait[1];
+struct sembuf NextSignal[1];
+struct sembuf SemWait[1];
+struct sembuf SemSignal[1];
+
+void setsembuf(struct sembuf *s, int num, int op, int flg) {
+	s->sem_num =(short)num;
+	s->sem_op = (short)op;
+	s->sem_flg = (short)flg;
+	return;
+}
+*/
+d40 37
+a76 1
+/* wait function of monitor */
+@
+
+
+1.3
+log
+@*** empty log message ***
+@
+text
+@d3 3
+d12 1
+a12 1
+/*$Date: 2016/03/05 23:52:47 $*/
+d18 2
+a19 2
+
+condition_var *con;
+d24 14
+d51 1
+a51 1
+void wait(int condition_sem) {
+d70 1
+a70 1
+	con = c;
+a79 1
+
+d85 10
+d96 2
+a97 9
+	con->num_waiting++;
+	if (con->next_count > 0)
+		signal(next);
+	else
+		signal(mutex);
+
+	wait(sem);
+	con->num_waiting--;
+		
+d101 1
+a101 1
+void signal(int condition_sem) {
+d120 1
+a120 1
+    con = c;
+d128 3
+a130 1
+
+a131 1
+	
+d136 1
+a136 2
+
+	if (con->num_waiting <= 0)
+d139 4
+a142 4
+	con->next_count++;
+	signal(sem);
+	wait(next);
+	con->next_count--;
+@
+
+
+1.2
+log
+@*** empty log message ***
+@
+text
+@d3 3
+d9 1
+a9 1
+/*$Date: 2016/03/05 09:19:14 $*/
+d22 12
+d43 1
+a43 1
+		perror("shmget failed");
+d49 1
+a49 1
+		perror("shmat failed");
+d58 1
+a58 1
+		perror("semget failed");
+d66 1
+a66 1
+		perror("semop WAIT error");
+d81 1
+d91 1
+a91 1
+        perror("shmget failed");
+d97 1
+a97 1
+        perror("shmat failed");
+d106 1
+a106 1
+        perror("semget failed");
+d113 1
+a113 1
+		perror("semop SIGNAL error");
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d1 6
+a6 3
+/*$Author:$*/
+/*$Log:$*/
+/*$Date:$*/
+d8 4
+d13 1
+d15 94
+@

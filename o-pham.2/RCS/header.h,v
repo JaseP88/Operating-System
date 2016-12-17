@@ -1,0 +1,129 @@
+head	1.5;
+access;
+symbols;
+locks
+	o-pham:1.5; strict;
+comment	@ * @;
+
+
+1.5
+date	2016.02.24.06.34.50;	author o-pham;	state Exp;
+branches;
+next	1.4;
+
+1.4
+date	2016.02.19.07.29.26;	author o-pham;	state Exp;
+branches;
+next	1.3;
+
+1.3
+date	2016.02.18.10.42.15;	author o-pham;	state Exp;
+branches;
+next	1.2;
+
+1.2
+date	2016.02.18.10.27.51;	author o-pham;	state Exp;
+branches;
+next	1.1;
+
+1.1
+date	2016.02.17.23.52.42;	author o-pham;	state Exp;
+branches;
+next	;
+
+
+desc
+@header file
+@
+
+
+1.5
+log
+@finish version
+@
+text
+@/*$Author: o-pham $*/
+/*$Date: 2016/02/19 07:29:26 $*/
+/*$Log: header.h,v $
+ *Revision 1.4  2016/02/19 07:29:26  o-pham
+ *added new function like signals and stuff
+ *
+ *Revision 1.3  2016/02/18 10:42:15  o-pham
+ **** empty log message ***
+ *
+ *Revision 1.1  2016/02/17 23:52:42  o-pham
+ *Initial revision
+ **/
+
+typedef enum {idle, want_in, in_cs} state;
+
+typedef struct data_structure {
+	state flag[19]; // the state of each 19 proccesses
+	int turn;
+} p_s;
+
+void process (const int i);
+void critical_section (int);
+void remainder_section (int, pid_t, int);
+void writeToFile (int);
+void times_up (int i);
+void exit_proc (int i);
+@
+
+
+1.4
+log
+@added new function like signals and stuff
+@
+text
+@d2 1
+a2 1
+/*$Date: 2016/02/18 10:42:15 $*/
+d4 3
+d17 1
+a17 1
+	state flag[18]; // the state of each 19 proccesses
+d23 1
+a23 1
+void remainder_section (void);
+@
+
+
+1.3
+log
+@*** empty log message ***
+@
+text
+@d2 1
+a2 1
+/*$Date: 2016/02/17 23:52:42 $*/
+d4 3
+d21 3
+@
+
+
+1.2
+log
+@*** empty log message ***
+@
+text
+@d16 1
+a16 1
+void critical_section (void);
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d1 6
+a6 3
+/*$Author$*/
+/*$Date$*/
+/*$Log$*/
+d13 1
+a13 1
+} proccess_state;
+@

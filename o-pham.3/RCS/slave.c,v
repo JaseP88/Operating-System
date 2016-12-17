@@ -1,0 +1,213 @@
+head	1.3;
+access;
+symbols;
+locks
+	o-pham:1.3; strict;
+comment	@ * @;
+
+
+1.3
+date	2016.03.08.17.02.31;	author o-pham;	state Exp;
+branches;
+next	1.2;
+
+1.2
+date	2016.03.07.21.57.56;	author o-pham;	state Exp;
+branches;
+next	1.1;
+
+1.1
+date	2016.03.06.10.46.53;	author o-pham;	state Exp;
+branches;
+next	;
+
+
+desc
+@@
+
+
+1.3
+log
+@*** empty log message ***
+@
+text
+@/*$Author: o-pham $*/
+/*$Date: 2016/03/07 21:57:56 $*/
+/*$Log: slave.c,v $
+ *Revision 1.2  2016/03/07 21:57:56  o-pham
+ **** empty log message ***
+ *
+ *Revision 1.1  2016/03/06 10:46:53  o-pham
+ *Initial revision
+ **/
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <sys/shm.h>
+#include <sys/sem.h>
+#include <time.h>
+#include <signal.h>
+#include "monitor.h"
+
+void writeToFile(int);	// functio prototype
+
+condition_var *cond;
+
+// main function
+int main(int argc, char *argv[]) {
+	time_t  epoch_time;
+    struct tm *t;
+    epoch_time = time(NULL);
+    t = localtime(&epoch_time);
+	int slave_num = atoi(argv[1]);
+	int numOfWrites = 0;
+
+/***************Set up Shared Memory**************/
+    key_t shmkey = 100;
+	int shmID;
+	condition_var *c;
+
+	shmID = shmget(shmkey,sizeof(condition_var), IPC_CREAT | 0666);
+    if (shmID < 0) {
+        perror("shmget failed in slave.c");
+        exit(1);
+    }
+
+    c = (condition_var *)shmat(shmID,(void *)0,0);
+    if (c < (condition_var *)(0)) {
+        perror("shmat failed in slave.c");
+        exit(1);
+    }
+
+    cond = c;
+
+/******************Set up Sem Set****************/
+	key_t semkey = 101;
+	int semID;	
+	semID = semget(semkey,3,IPC_CREAT | 0666);
+	if (semID < 0) {
+		perror("semget failed in slave.c");
+		exit(1);
+	}
+
+
+
+/************** Start Of Process*****************/	
+	Pwait(mutex);
+	fprintf(stderr,"slave %d entering critical section\n",slave_num);
+	sleep(1);
+
+	fprintf(stderr,"writing.....\n");
+	writeToFile(slave_num);
+	sleep(1);
+
+	if (cond->next_count > 0) {
+		fprintf(stderr,"slave %d leaving critical section\n",slave_num);
+		sleep(1);
+		Vsignal(next);
+	}
+	else {
+	 	fprintf(stderr,"slave %d leaving critical section\n",slave_num);
+		sleep(1);
+		Vsignal(mutex);
+	}	
+	
+/*
+WAIT.sem_num = mutex;
+	if (semop(semID,&WAIT,1) == -1) {
+		perror("line 66");
+		exit(1);
+	}
+	sleep(1);
+	fprintf(stderr,"slave %d entering critical section\n",slave_num);
+	writeToFile(slave_num);
+	fprintf(stderr,"slave %d leaving critical section\n",slave_num);
+	sleep(1);
+
+	if (cond->next_count > 0) {
+		SIGNAL.sem_num = next;
+		if (semop(semID,&SIGNAL,1) == -1) {
+			perror("line 74");
+			exit(1);
+		}
+	}
+
+	else {
+		SIGNAL.sem_num = mutex;
+		if (semop(semID,&SIGNAL,1) == -1) {
+			perror("line 81");
+			exit(1);
+		}
+	}
+*/		
+	// remainder section here
+
+	return 0;
+}
+
+void writeToFile (int process_number) {
+    time_t  epoch_time;
+    struct tm *tm_p;
+    epoch_time = time(NULL);
+    tm_p = localtime(&epoch_time);
+
+    FILE *fp;
+    int p_n = process_number; // process number
+
+
+    if ( (fp = fopen("cstest", "a")) == NULL) {
+        perror("Error opening file");
+    }
+
+    fprintf(fp, "File modified by process number %d at time "
+        "%.2d:%.2d:%.2d\n", p_n, tm_p-> tm_hour, tm_p-> tm_min, tm_p-> tm_sec);
+
+    fclose(fp);
+	return;
+}
+@
+
+
+1.2
+log
+@*** empty log message ***
+@
+text
+@d2 1
+a2 1
+/*$Date: 2016/03/06 10:46:53 $*/
+d4 3
+d52 11
+d64 47
+a110 10
+	cwait(mutex);	// process wait on mutex
+	sleep(2);
+	fprintf(stderr,"slave %d is entering critical section\n", slave_num);
+	writeToFile(slave_num);	//critical section
+
+	if (cond->next_count > 0)
+		csignal(next);
+	else
+		csignal(mutex);
+
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d1 6
+a6 3
+/*$Author:$*/
+/*$Date:$*/
+/*$Log:$*/
+d37 1
+a37 1
+        perror("shmget failed in master.c");
+d43 1
+a43 1
+        perror("shmat failed in master.c");
+@

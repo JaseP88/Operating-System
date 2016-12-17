@@ -1,0 +1,547 @@
+head	1.9;
+access;
+symbols;
+locks
+	o-pham:1.9; strict;
+comment	@ * @;
+
+
+1.9
+date	2016.02.24.06.34.33;	author o-pham;	state Exp;
+branches;
+next	1.8;
+
+1.8
+date	2016.02.20.05.07.04;	author o-pham;	state Exp;
+branches;
+next	1.7;
+
+1.7
+date	2016.02.19.23.33.16;	author o-pham;	state Exp;
+branches;
+next	1.6;
+
+1.6
+date	2016.02.18.23.44.13;	author o-pham;	state Exp;
+branches;
+next	1.5;
+
+1.5
+date	2016.02.18.10.42.22;	author o-pham;	state Exp;
+branches;
+next	1.4;
+
+1.4
+date	2016.02.18.10.30.19;	author o-pham;	state Exp;
+branches;
+next	1.3;
+
+1.3
+date	2016.02.18.08.55.29;	author o-pham;	state Exp;
+branches;
+next	1.2;
+
+1.2
+date	2016.02.17.23.53.07;	author o-pham;	state Exp;
+branches;
+next	1.1;
+
+1.1
+date	2016.02.17.22.22.43;	author o-pham;	state Exp;
+branches;
+next	;
+
+
+desc
+@main to execute process forks.
+@
+
+
+1.9
+log
+@finished version
+@
+text
+@/*$Author: o-pham $*/
+/*$Date: 2016/02/20 05:07:04 $*/
+/*$Log: master.c,v $
+ *Revision 1.8  2016/02/20 05:07:04  o-pham
+ **** empty log message ***
+ *
+ *Revision 1.7  2016/02/19 23:33:16  o-pham
+ *added signals and moved operations to slave
+ *
+ *Revision 1.6  2016/02/18 23:44:13  o-pham
+ *currently working.
+ *
+ *Revision 1.5  2016/02/18 10:42:22  o-pham
+ **** empty log message ***
+ *
+ *Revision 1.4  2016/02/18 10:30:19  o-pham
+ *added critical section function
+ *
+ *Revision 1.3  2016/02/18 08:55:29  o-pham
+ *added multiple solution to processes function and share emm mem
+ *
+ *Revision 1.2  2016/02/17 23:53:07  o-pham
+ *fanned the processes, gave it a value 1-19
+ *
+ *Revision 1.1  2016/02/17 22:22:43  o-pham
+ *Initial revision
+ **/
+
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <sys/wait.h>
+#include <errno.h>
+#include "header.h"
+#include <sys/time.h>
+#include <signal.h>
+#include <sys/shm.h>
+
+#define TIMER  300// timer value
+
+p_s *ps;
+
+int main (void) {
+
+
+/*************SET SHARED MEM IN MAIN********/
+	 key_t key = 100;
+    int shmID;
+    p_s *shm_mem;
+
+    shmID = shmget(key,sizeof(p_s), IPC_CREAT | 0666);
+    if (shmID < 0) {
+        perror("shmget failed\n");
+        exit(1);
+    }
+
+    shm_mem = (p_s *)shmat(shmID, (void *)0, 0);
+    if (shm_mem < (p_s *)(0)) {
+        perror("shmat failed\n");
+        exit(1);
+    }
+
+    ps = shm_mem;	
+
+
+
+
+	int i, slave_num;
+	pid_t childpid;
+	pid_t waitreturn;
+	pid_t pgID;
+	struct itimerval time_val;
+
+
+/*********SETTING TIMER ***********/
+	time_val.it_interval.tv_sec = 0;
+	time_val.it_interval.tv_usec =0;
+	time_val.it_value.tv_sec = TIMER;	// set the timer
+	time_val.it_value.tv_usec = 0;
+	setitimer(ITIMER_REAL, &time_val, 0);
+
+	// signals to catch
+	signal(SIGALRM, times_up);
+	signal(SIGINT, exit_proc);
+	
+	// creates a fan of 19 child process and 1 parent process
+	// Used i to set the slave number for each process the last
+	// process 20 is the master.
+	for (i = 0; i < 19; i++)
+		if ((childpid = fork()) <= 0) {
+			slave_num = i + 1; // start at 1
+			break;
+		}
+
+	if (childpid == 0) { // slave process
+		pgID = getpgrp();	// establish a group pid to kill
+		
+		char proc_num[sizeof(slave_num)];	// convert the slave_num to a string
+		snprintf(proc_num, sizeof(slave_num), "%d", slave_num);
+
+		// exec child process to run slave process
+		execl("./slave", "./slave", proc_num, NULL); 
+	}
+
+	else {
+		pgID = getpgrp();	// set the group pid
+		
+		// wait for children to end
+		while (childpid != (waitreturn = wait(NULL)))
+			if ((childpid == -1) && (errno != EINTR))
+				break;
+		// when all children finishes delete shared memory and exit
+		fprintf(stderr,"Hey all children are done, deallocating shared mem... LATA\n");
+		shmctl(shmID, IPC_RMID, NULL);
+		exit(0);
+	}
+		
+	
+	return 0;
+}
+
+
+// these are handler functions for the signals
+void times_up (int i) {
+	/* **********SHARED MEMORY*********/
+    key_t key = 100;
+    int shmID;
+    p_s *shm_mem;
+
+    shmID = shmget(key,sizeof(p_s), IPC_CREAT | 0666);
+    if (shmID < 0) {
+		perror("shmget failed\n");
+		exit(1);
+	}
+
+	shm_mem = (p_s *)shmat(shmID, (void *)0, 0);
+	if (shm_mem < (p_s *)(0)) {
+		perror("shmat failed\n");
+		exit(1);
+	}
+
+    ps = shm_mem;
+
+	printf("%d seconds is up master and all childs are closing\n", TIMER);
+	printf( "shared memory is deallocating...\n");
+	shmctl(shmID, IPC_RMID, NULL);
+	killpg(0, SIGKILL); // kill children group pid
+	exit(0);
+}
+
+void exit_proc (int i) {
+	/* **********SHARED MEMORY*********/
+    key_t key = 100;
+    int shmID;
+    p_s *shm_mem;
+
+    shmID = shmget(key,sizeof(p_s), IPC_CREAT | 0666);
+	if (shmID < 0) {
+        perror("shmget failed\n");
+        exit(1);
+    }
+
+    shm_mem = (p_s *)shmat(shmID, (void *)0, 0);
+	if (shm_mem < (p_s *)(0)) {
+        perror("shmat failed\n");
+        exit(1);
+    }
+
+
+    ps = shm_mem;
+
+
+	signal(SIGINT, exit_proc);
+	printf("interrupt signal ^c received, master and slave dieing\n");
+	printf("shared memory is deallocating..\n");
+	shmctl(shmID, IPC_RMID, NULL);
+	exit(0);
+}
+
+
+@
+
+
+1.8
+log
+@*** empty log message ***
+@
+text
+@d2 1
+a2 1
+/*$Date: 2016/02/19 23:33:16 $*/
+d4 3
+d38 3
+d42 1
+a42 1
+#define TIMER  60// timer value
+d45 24
+a68 1
+	
+d75 2
+d113 4
+a116 2
+
+		//printf("hi i am the master and my pid is %ld\n", (long)getpid());
+d118 1
+d126 19
+d146 3
+a148 1
+	killpg(0, SIGKILL); // kill group pid
+d153 21
+d175 3
+a177 1
+	printf("LATA\n");
+@
+
+
+1.7
+log
+@added signals and moved operations to slave
+@
+text
+@d2 1
+a2 1
+/*$Date: 2016/02/18 23:44:13 $*/
+d4 3
+d36 1
+a36 1
+#define TIMER 10 // timer value
+@
+
+
+1.6
+log
+@currently working.
+@
+text
+@d2 1
+a2 1
+/*$Date: 2016/02/18 10:42:22 $*/
+d4 3
+a28 1
+#include <sys/shm.h>
+d30 2
+d33 1
+a33 12
+/*
+// state will show 0 for idle, 1 for want_in, 2 for in_cs
+typedef enum {idle, want_in, in_cs} state;
+
+// define the structure to use shared memory
+typedef struct data_structure {
+	state flag[18];	// corresponds to the 19 slave proccess
+	int turn;
+} p_s;
+*/
+
+p_s *ps;	// shared memory pointer
+d37 1
+a37 3
+	//int slave_num;
+	int n, i, shmid, slave_num;
+	int max_writes;
+d40 2
+a41 18
+	//int i;
+	key_t key = 100;
+	//int shmid;
+	p_s *shm_ps;
+	
+	// shared memory creation
+	shmid = shmget(key, sizeof(p_s), IPC_CREAT | 0666);
+    if (shmid < 0) {
+    	perror("smid failed");
+    	exit(1);
+   	}
+	
+	// shared memory attached to pointer shm_ps
+    shm_ps = (p_s *)shmat(shmid, (void *)0, 0);
+   	if (shm_ps == (p_s *)(-1)) {
+    	perror("shmat failed");
+    	exit(1);
+    }
+d43 9
+a51 1
+	ps = shm_ps;
+a58 1
+			n = i;
+d63 7
+a69 2
+		//process(n);
+		//printf("There are %d childs\n", slave_num);
+d73 3
+d80 1
+a80 1
+		printf("hi i am the master and my pid is %ld\n", (long)getpid());
+d82 1
+a82 1
+
+a85 26
+void process (const int i) {
+	int j;
+	int pn = i+1; // to store the correct process #
+	
+	do {
+		do {
+			ps-> flag[i] = want_in;
+			j = ps-> turn;
+			while (j != i)
+				j = (ps-> flag[j] != idle) ? ps-> turn : (j + 1) % 18;
+
+			ps-> flag[i] = in_cs;
+
+			for (j = 0; j < 18; j++)
+				if ( (j != i) && (ps-> flag[j] == in_cs) )
+					break;
+			
+		} while ( (j < 18) || ((ps-> turn != i) && (ps-> flag[j] != idle)) );
+
+		ps-> turn = i;
+		//crit
+		critical_section(pn);
+
+		j = (ps-> turn + 1) % 18;
+		while (ps-> flag[j] == idle)
+			j = (j + 1) % 18;
+d87 6
+a92 2
+		ps-> turn = j;
+		ps-> flag[i] = idle;
+d94 4
+a97 2
+		//rem
+	} while(1);	
+d100 1
+a100 5
+void critical_section (int pn) {
+	char process_num[sizeof(pn)];
+	snprintf(process_num, sizeof(pn), "%d", pn);
+    execl ("./slave", "./slave", process_num, NULL);
+}
+@
+
+
+1.5
+log
+@*** empty log message ***
+@
+text
+@d2 1
+a2 1
+/*$Date: 2016/02/18 10:30:19 $*/
+d4 3
+d46 1
+a76 2
+			//ps-> turn = n;
+
+d80 3
+a82 4
+	if (childpid == 0) {
+		ps-> flag[slave_num] = want_in;
+		printf("My slave number is %d my flag is %d "
+			"and my parent is %ld\n", slave_num, ps-> flag[slave_num],(long)getppid());
+d98 1
+a98 1
+	int pn = i+1;
+d131 3
+a133 4
+	char argv[sizeof(pn)];
+	itoa(pn, argv, 10);
+    execvp ("cstest", argv);
+    
+@
+
+
+1.4
+log
+@added critical section function
+@
+text
+@d2 1
+a2 1
+/*$Date: 2016/02/18 08:55:29 $*/
+d4 3
+d97 1
+d116 1
+d130 4
+a133 5
+    char *argv = itoa(pn);
+    if (int execvp (cstest, argv) == -1) {
+        perror("exec failed");
+        exit(1);
+    }
+@
+
+
+1.3
+log
+@added multiple solution to processes function and share emm mem
+@
+text
+@d2 5
+a6 2
+/*$Date: 2016/02/17 23:53:07 $*/
+/*$Log: main.c,v $
+d122 8
+@
+
+
+1.2
+log
+@fanned the processes, gave it a value 1-19
+@
+text
+@d2 1
+a2 1
+/*$Date: 2016/02/17 22:22:43 $*/
+d4 3
+d20 2
+d24 1
+d28 2
+a29 1
+} process_state;
+d31 1
+d35 2
+a36 1
+	int slave_num;
+d39 20
+a58 2
+	int i;
+	key_t key;
+d63 1
+a63 1
+	for (i = 1; i < 20; i++)
+d65 4
+a68 2
+			slave_num = i;
+			key = (key_t)slave_num;
+d73 3
+a75 2
+		printf("My slave number is %d and my key "
+			"is %d\n", slave_num, key);
+d83 1
+a83 2
+		int master_num = 0; 
+		printf("hi i am the master\n");
+d90 26
+d117 2
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d1 6
+a6 3
+/*$Author$*/
+/*$Date$*/
+/*$Log$*/
+d14 9
+a23 1
+extern int prcs = 1;
+d26 2
+a27 1
+
+d31 1
+d34 6
+a39 2
+	for (i = 0; i < 19; i++)
+		if ((childpid = fork()) <= 0)
+d41 1
+d44 2
+a45 3
+		int slave_num = prcs;
+		prcs++;
+		printf("My slave number is %d\n", slave_num);
+d54 1
+a54 1
+		printf("I am the master %d\n", master_num);
+d58 4
+@

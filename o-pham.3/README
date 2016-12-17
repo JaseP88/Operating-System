@@ -1,0 +1,26 @@
+Jason Pham, HW3
+
+"make all"
+to make all the necessary files for this project
+files made is monitor.c, master.c, and slave.c
+monitor.c is implemented as a library function call
+monitor.h contains the structure for the monitor which are the
+condition variables, condition sems, and condition functions
+
+"./master"
+will start the program
+master.c forks slaves and execute them by execl "./slave"
+master.c keeps a timer of the master process set to 300secs or 5 minutes
+sets up and initialize mutex and next semaphore
+has a signal for SIGALRM and SIGINT if ^c interupts process
+after all slaves processes are done clean up sems and shared mem
+after SIGALRM and SIGINT signals clean up sems and shared mem
+
+"./slave"
+will execute the code to enter the critical section and write
+to the file "cstest"
+will write to "cstest" a total of 3 times after which the 
+slave process ends itself and exit
+
+"make clean"
+will clean up all executable files, object files, and the cstest file

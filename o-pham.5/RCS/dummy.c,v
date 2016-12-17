@@ -1,0 +1,73 @@
+head	1.2;
+access;
+symbols;
+locks
+	o-pham:1.2; strict;
+comment	@ * @;
+
+
+1.2
+date	2016.04.05.07.58.11;	author o-pham;	state Exp;
+branches;
+next	1.1;
+
+1.1
+date	2016.04.05.07.57.18;	author o-pham;	state Exp;
+branches;
+next	;
+
+
+desc
+@@
+
+
+1.2
+log
+@*** empty log message ***
+@
+text
+@#include <sys/shm.h>
+#include "resource.h"
+#include <stdlib.h>
+#include <stdio.h>
+#include <unistd.h>
+
+s_m *shared_struct;
+
+int main(int argc, char *argv[]) {
+	key_t shmkey = 100;
+    int shmID;
+    s_m *sm;
+
+    shmID = shmget(shmkey,sizeof(s_m),IPC_CREAT | 0666);
+    if (shmID<0) {
+        perror("shmget failed");
+        exit(1);
+    }
+
+    sm = (s_m *)shmat(shmID,(void *)0,0);
+    if (sm<(s_m *)(0)) {
+        perror("shmat failed");
+        exit(1);
+    }
+
+    shared_struct = sm;
+
+	//sm->process_running+=1;
+	int index = atoi(argv[1]);
+	//sm->taken[index] = YES;
+	for(;;){};
+	return 0;
+}
+
+HEYYYYYYYYYYYYY 
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d34 2
+@

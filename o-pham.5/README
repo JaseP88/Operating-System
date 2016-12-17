@@ -1,0 +1,27 @@
+Jason Pham
+HW 5
+
+./oss to execute simulation
+
+
+oss will fork a process on startup and will set up the necessary structures
+it will enter a loop in which it will randomly fork a process based off of the
+logical clock.
+
+logical clock runs in nanoseconds. Every loop iteration will increase 1 nanosec
+up till 999,999,999 in which it will increment the second and set nanosec back
+to 0;
+
+oss will exit the simulation loop after 3 second of the logical clock time
+(Logical clock second takes a long while becuase it has to iterate 999999999x)
+oss will then delete shared mem and semaphores it set up on interupt signals
+or after logical clock reaches 3 seconds.
+
+process.c will enter loop checking if it has received all of the resource it
+requested.  if It did then it will exit and reset the structures accordingly
+else it will ask for a random amount of resource *its need vector* at a 
+random time or it will terminate resetting all the impacted structures.
+
+throughput is calculated for the 3 logical clock seconds when done.
+throughput will only count the ones that has exited in process.c.
+the other info will be addressed by the process before it dies.

@@ -1,0 +1,1085 @@
+head	1.8;
+access;
+symbols;
+locks
+	o-pham:1.8; strict;
+comment	@ * @;
+
+
+1.8
+date	2016.04.12.05.59.50;	author o-pham;	state Exp;
+branches;
+next	1.7;
+
+1.7
+date	2016.04.11.03.43.40;	author o-pham;	state Exp;
+branches;
+next	1.6;
+
+1.6
+date	2016.04.08.00.55.18;	author o-pham;	state Exp;
+branches;
+next	1.5;
+
+1.5
+date	2016.04.06.07.45.50;	author o-pham;	state Exp;
+branches;
+next	1.4;
+
+1.4
+date	2016.04.05.05.57.54;	author o-pham;	state Exp;
+branches;
+next	1.3;
+
+1.3
+date	2016.04.03.10.39.49;	author o-pham;	state Exp;
+branches;
+next	1.2;
+
+1.2
+date	2016.04.03.02.31.42;	author o-pham;	state Exp;
+branches;
+next	1.1;
+
+1.1
+date	2016.04.01.20.06.51;	author o-pham;	state Exp;
+branches;
+next	;
+
+
+desc
+@@
+
+
+1.8
+log
+@good and working
+@
+text
+@/*$Author: o-pham $*/
+/*$Date: 2016/04/11 03:43:40 $*/
+/*$Log: oss.c,v $
+ *Revision 1.7  2016/04/11 03:43:40  o-pham
+ **** empty log message ***
+ *
+ *Revision 1.6  2016/04/08 00:55:18  o-pham
+ *fork works
+ *randomization in children good
+ *
+ *Revision 1.5  2016/04/06 07:45:50  o-pham
+ **** empty log message ***
+ *
+ *Revision 1.4  2016/04/05 05:57:54  o-pham
+ **** empty log message ***
+ *
+ *Revision 1.3  2016/04/03 10:39:49  o-pham
+ **** empty log message ***
+ *
+ *Revision 1.2  2016/04/03 02:31:42  o-pham
+ **** empty log message ***
+ *
+ *Revision 1.1  2016/04/01 20:06:51  o-pham
+ *Initial revision
+ **/
+
+#include <stdio.h>
+#include <sys/shm.h>
+#include <sys/sem.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <time.h>
+#include "resource.h"
+#include <sys/types.h>
+#include <sys/ipc.h>
+#include <signal.h>
+#include <sys/wait.h>
+#include <errno.h>
+#include <sys/resource.h>
+
+s_m *shared_struct;
+
+/****** function to handle the SIGCHLD signal when child exits *****/
+void chi_exit()
+{	
+	//while(r_wait(NULL) > 0);
+//	semop error but ideal usage with this wait
+  	pid_t childPID;
+
+	while(childPID = waitpid(-1,NULL,WNOHANG))
+		if((childPID == -1)&&(errno != EINTR))
+			break;
+	
+}
+
+// OSS.C
+int main(void) {
+	srand(time(NULL));
+/********** Set up Shared Mem **********/
+	key_t shmkey;
+	if ((shmkey = ftok("/classes/OS/o-pham/o-pham.5",100)) == (key_t)-1) {
+		perror("ftok error");
+		exit(1);
+	}
+
+	int shmID;
+	s_m *sm;
+
+	shmID = shmget(shmkey,sizeof(s_m),IPC_CREAT | 0666);
+	if (shmID<0) {
+		perror("shmget failed");
+		exit(1);
+	}
+
+	sm = (s_m *)shmat(shmID,(void *)0,0);
+	if (sm<(s_m *)(0)) {
+		perror("shmat failed");
+		exit(1);
+	}
+
+	shared_struct = sm;
+
+/*********** Set up Semaphore **********/
+	int semID;
+	key_t semkey;
+	if ((semkey = ftok("/classes/OS/o-pham/o-pham.5",101)) == (key_t) -1) {
+		perror("ftok error");
+		exit(1);
+	}
+
+	semID = semget(semkey,2,IPC_CREAT | 0666);	
+	if (semID<0) {
+		perror("semget failed");
+		exit(1);
+	}
+
+	seminit(semID,0,0);//oss semaphore
+	seminit(semID,1,0);//process semaphore
+
+/********** Initialize Resource Descriptor **********/
+	int i, j, r, p;
+	bool dl;
+	int share_counter = rand_gen(3,5);	//20% of 20 +/-
+
+	for(i=0;i<20;i++) {
+		for(j=0;j<18;j++) {
+			/*initialize request, allocate, and need array*/
+			sm->rs[i].req[j] = 0;
+			sm->rs[i].reqC[j] = 0;
+			sm->rs[i].allo[j] = 0;
+			sm->rs[i].alloC[j] = 0;
+			sm->rs[i].need[j] = 0;
+			sm->rs[i].needC[j] = 0;
+			sm->rs[i].max[j] = 0;
+			sm->rs[i].maxC[j] = 0;
+		}
+
+		sm->rs[i].instance = rand_gen(1,10); // initialize instance
+		sm->rs[i].avail[i] = sm->rs[i].instance;//initialize available array
+		sm->rs[i].availC[i] = sm->rs[i].instance;//and its copy
+
+		if (share_counter > 0) {	//allow random generation of shareable res.
+			sm->rs[i].shareable = rand_gen(NO,YES);
+			if(sm->rs[i].shareable == YES)
+				share_counter--;
+		}
+		else	//if 3 / 5 shareable resource is instanced rest is non shareable
+			sm->rs[i].shareable = NO;
+	}
+
+/********* Set up process structures *************/
+	sm->throughput = 0;
+	for(p=0;p<18;p++) {
+		sm->p[p].waiting_time_s = 0;
+		sm->p[p].waiting_time_n = 0;
+		sm->p[p].turna_time_s = 0;
+		sm->p[p].turna_time_n = 0;
+	}
+
+/********** Initialize taken array ********/
+	for(i=0;i<18;i++) 
+		sm->taken[i] = NO;
+/********** Start Logical Clock ***********/
+	sm->lclock.sec = 0;
+	sm->lclock.nan = 0;
+/********** Initialize Shared Mem ***********/
+	
+	sm->process_running = 0; //set the number of process running to 0 at start
+	sm->p_num = 0;//counter of how many process ran
+	signal (SIGCHLD, chi_exit);
+
+/********** Fork at time 0 ************/
+	pid_t pID, pgID;
+	pgID = getpgrp();
+	int index = 0;
+	sleep(1); //so child random generator work
+	pID = fork();//fork at ~time 0
+
+    if(pID == -1) {
+    	perror("fork error");
+        exit(1);
+    }
+    if (pID == 0) { //the child
+		pgID = getpgrp();
+        char pass_index[sizeof(index)];
+        snprintf(pass_index,sizeof(index),"%d",index);
+        execl("./process","./process",pass_index,NULL);
+    }
+
+    sm->taken[index] = YES;//update the taken array
+    sm->process_running+=1;//update the total # of process
+	sm->p_num+=1;
+    index = index_open(sm);//picks the free index in taken array
+	
+	//semwait(semID,0); //oss sleep
+	
+/********** Start Simulation Loop ************/
+	int wait_to_fork = NO;
+	signal(SIGINT, exit_proc); //interupt signal
+
+
+	for(;;) {
+
+		 //synchronize nanoseconds and seconds 
+		if (sm->lclock.nan >= 999999999) {
+			sm->lclock.nan = 0;
+			sm->lclock.sec++;
+			fprintf(stderr,"%d second\n",sm->lclock.sec);
+		}
+
+		//fprintf(stderr,"P%ld:%ld\n",sm->lclock.sec,sm->lclock.nan);
+		
+		/* generate the random time in millisecond to fork */
+		if (wait_to_fork == NO) {
+			sm->rand_fork_time = rand_gen(1000,500000); //1-500 milliseconds
+			wait_to_fork = YES;
+		}
+		
+		if (sm->rand_fork_time <= 0 && wait_to_fork == YES) {
+			/* Limit fork process to 18 process */
+			if (sm->process_running < 18) {
+				sleep(1);//so child process random generator work
+				pID = fork();
+				if(pID == -1) {
+					perror("fork error");
+					exit(1);
+				}
+				else if (pID == 0) { //the child
+					pgID = getpgrp();
+					char pass_index[sizeof(index)];
+					snprintf(pass_index,sizeof(index),"%d",index);
+					execl("./process","./process",pass_index,NULL);
+				}
+
+				sm->taken[index] = YES;//update the taken array
+				sm->process_running+=1;//update the total # of process
+				sm->p_num+=1;
+				index = index_open(sm);//picks the free index in taken array
+				wait_to_fork = NO;
+				//semwait(semID,0);
+			}	
+		}
+
+		//scan for the needs of each process and also allocate
+		//the resource that are shareable
+		for(p=0;p<18;p++) 
+			for(r=0;r<20;r++) {
+				//get current needs of the process p
+				sm->rs[r].need[p] = sm->rs[r].max[p] - sm->rs[r].allo[p];
+				sm->rs[r].needC[p] = sm->rs[r].maxC[p] - sm->rs[r].alloC[p];
+                		
+			}	
+
+//fprintf(stderr,"after calc need process1\n");
+//test(20,0,sm);
+//fprintf(stderr,"after calc need process2\n");
+//test(20,1,sm);
+
+		//give all the process the shareable resources
+		for(p=0;p<18;p++)
+			for(r=0;r<20;r++) {
+				if(sm->rs[r].shareable == YES) {
+					//fill allocae array with max claim of process
+					sm->rs[r].allo[p] = sm->rs[r].max[p];
+					sm->rs[r].alloC[p] = sm->rs[r].maxC[p];
+		
+					//reset process needs and request to 0
+					sm->rs[r].need[p] = 0;	
+					sm->rs[r].needC[p] = 0;
+					sm->rs[r].req[p] = 0;
+					sm->rs[r].reqC[p] = 0;
+				}
+			}
+
+//fprintf(stderr,"after allocate shareable process1\n");
+//test(20,0,sm);
+//fprintf(stderr,"after allocate shareable process2\n");
+//test(20,1,sm);
+
+		//give the resource structure copies to test deadlock on
+		//hypothetically give process the resources
+		for(p=0;p<18;p++)
+			for(r=0;r<20;r++) {
+				//if(sm->rs[r].req[p] > sm->rs[r].need[p])
+					//fprintf(stderr,"throw\n");
+			
+				if(sm->rs[r].req[p] <= sm->rs[r].avail[r]) {
+					sm->rs[r].alloC[p] += sm->rs[r].reqC[p];
+					sm->rs[r].availC[r] -= sm->rs[r].reqC[p];
+                    sm->rs[r].needC[p] -= sm->rs[r].reqC[p];
+                    sm->rs[r].reqC[p] = sm->rs[r].needC[p];
+				}
+			}		
+
+//fprintf(stderr,"after allocate rest process1\n");
+//test(20,18,sm);
+//fprintf(stderr,"after allocate rest process2\n");
+//test(20,18,sm);
+
+		//use pointers to pass arrays from shared mem to deadlock func
+		int *av, *re, *al;
+		av = sm->rs[0].availC;
+		re = sm->rs[0].reqC;
+		al = sm->rs[0].alloC;
+		
+		dl = deadlock(av,20,18,re,al);
+		if(dl == false) {
+			//if no deadlock move the original state to the new state
+			//fprintf(stderr,"not dl\n");
+        	sm->rs[r].allo[p] = sm->rs[r].alloC[p];
+      		sm->rs[r].avail[r] = sm->rs[r].availC[r];
+        	sm->rs[r].need[p] = sm->rs[r].needC[p];
+        	sm->rs[r].req[p] = sm->rs[r].reqC[p];
+        }
+                  
+        else {
+			//if deadlocked move new state back to its original
+			//fprintf(stderr,"dl\n");
+        	sm->rs[r].alloC[p] = sm->rs[r].allo[p];
+        	sm->rs[r].availC[r] = sm->rs[r].avail[p];
+       		sm->rs[r].needC[p] = sm->rs[r].need[p];
+        	sm->rs[r].reqC[p] = sm->rs[r].req[p];
+        }
+
+	//}
+			
+		sm->rand_fork_time-=1; //decrement the time to wait to fork
+		sm->lclock.nan+=1;	//increment clock by 1 nanosec each loop.
+
+		//condition to run simulation for 5 logical clock seconds
+		//then break out of simulation after 5 seconds
+		if(sm->lclock.sec > 3) 
+			break;
+
+	}//simulation end	
+	
+	unsigned int total_turna_time_s = 0;
+	unsigned int total_turna_time_n = 0;
+	unsigned int avg_turna_time_s = 0;
+	unsigned int avg_turna_time_n = 0;
+	for(p=0;p<18;p++) {
+		total_turna_time_s +=sm->p[p].turna_time_s;
+		total_turna_time_n +=sm->p[p].turna_time_n;
+	}
+
+	avg_turna_time_s = total_turna_time_s / sm->p_num;
+	avg_turna_time_n = total_turna_time_s / sm->p_num;
+
+	unsigned int total_wait_time_s = 0;
+	unsigned int total_wait_time_n = 0;
+	unsigned int avg_wait_time_s = 0;
+	unsigned int avg_wait_time_n = 0;
+
+	for(p=0;p<18;p++) {
+		total_wait_time_s += sm->p[p].waiting_time_s;
+		total_wait_time_n += sm->p[p].waiting_time_n;
+	}
+
+	avg_wait_time_s = total_wait_time_s / sm->p_num;
+	avg_wait_time_n = total_wait_time_n / sm->p_num;
+
+	unsigned int avg_cpu_util_s = avg_turna_time_s - avg_wait_time_s;
+	unsigned int avg_cpu_util_n = avg_turna_time_n - avg_wait_time_n;
+
+
+
+	fprintf(stderr,"simulation is done\n");
+	fprintf(stderr,"throughput is %d\n",sm->throughput);
+	fprintf(stderr,"average turnaroun time is %d:%d\n",avg_turna_time_s,avg_turna_time_n);
+	
+	fprintf(stderr,"average waiting time is %d:%d\n",avg_wait_time_s,avg_wait_time_n);
+	
+	fprintf(stderr,"average cpu utilization is %d:%d\n",avg_cpu_util_s,avg_cpu_util_n);
+
+
+	fprintf(stderr,"deallocating shared mem and sems\n");
+	
+	if(shmctl(shmID,IPC_RMID,NULL) == -1) {
+        perror("failed to remove shared memory");
+        exit(1);
+    }
+
+    if(semctl(semID,0,IPC_RMID) == -1) {
+        perror("failed to remove semaphores");
+        exit(1);
+    }
+	killpg(0,SIGKILL);
+
+return 0;
+}//OSS.C
+
+@
+
+
+1.7
+log
+@*** empty log message ***
+@
+text
+@d2 1
+a2 1
+/*$Date: 2016/04/08 00:55:18 $*/
+d4 3
+d36 5
+d43 13
+d131 8
+d147 1
+d150 2
+d153 2
+a154 1
+	pid_t pID;
+d164 1
+d175 1
+a175 1
+	wait(semID,0); //oss sleep
+d179 3
+d208 2
+a209 1
+				if (pID == 0) { //the child
+d214 1
+a214 1
+				
+d220 1
+a220 1
+				wait(semID,0);
+a221 5
+			/*else
+				fprintf(stderr,"more than 18 process in use\n");
+*/
+			//wait_to_fork = NO;
+			//wait(semID,0);
+d239 1
+d260 2
+d264 2
+a265 2
+				if(sm->rs[r].req[p] > sm->rs[r].need[p])
+					fprintf(stderr,"throw\n");
+a279 1
+	if(sm->process_running == 18) {
+d287 1
+a287 1
+		if(dl == true) {
+d305 1
+a305 1
+	}
+d307 1
+a307 1
+		sm->rand_fork_time-=1;
+d309 60
+a368 1
+	}//simulation end
+@
+
+
+1.6
+log
+@fork works
+randomization in children good
+@
+text
+@d2 1
+a2 1
+/*$Date: 2016/04/06 07:45:50 $*/
+d4 4
+d70 1
+a70 1
+	semID = semget(semkey,1,IPC_CREAT | 0666);	
+d76 2
+a77 1
+	seminit(semID,0,0);
+d81 1
+d87 4
+a90 4
+			sm->rs[i].request[j] = 0;
+			sm->rs[i].request_copy[j] = 0;
+			sm->rs[i].allocate[j] = 0;
+			sm->rs[i].allocate_copy[j] = 0;
+d92 3
+a94 1
+			sm->rs[i].need_copy[j] = 0;
+d98 2
+a99 2
+		sm->rs[i].available[i] = sm->rs[i].instance;//initialize available array
+		sm->rs[i].available_copy[i] = sm->rs[i].instance;//and its copy
+a108 2
+for(r=0;r<20;r++)
+fprintf(stderr," resource %d have %d initial instance\n",r,sm->rs[r].instance);
+d119 1
+a119 1
+	sm->p_num = 0;
+d124 2
+a125 2
+	pID = fork();
+	//fprintf ( stderr, "Process forked: PID: %d\n", pID );
+a130 4
+		
+		//fprintf(stderr,"index is %d\n",index);
+        //fprintf(stderr,"total proc running is %d\n",sm->process_running);
+        // index = index_open(sm);//picks the free index in taken array
+a138 3
+
+    //fprintf(stderr,"index is %d\n",index);
+    //fprintf(stderr,"total proc running is %d\n",sm->process_running);
+d140 3
+a142 1
+
+a145 5
+		
+		//generate a random resource and use it to determine action
+		//release,need,allocate,etc
+		//int rr = rand_gen(0,19); //generate a random resource (rr)	
+		//int pp = rand_gen(0,17); //generate a random process to look at
+d148 1
+a148 1
+		if (sm->lclock.nan == 1000000000) {
+d151 1
+d155 1
+a158 1
+			//fprintf(stderr,"setup randfork time\n");
+a164 1
+				//fprintf(stderr,"forking process %d\n",sm->process_running);
+a166 1
+//fprintf ( stderr, "Process forked: PID: %d\n", pID );
+a179 2
+				//fprintf(stderr,"index is %d\n",index);
+				//fprintf(stderr,"total proc running is %d\n",sm->process_running);
+d181 2
+d184 1
+a184 1
+			else
+d186 4
+d191 21
+a211 2
+			wait_to_fork = NO;
+		}
+d213 7
+a219 15
+	//	wait(semID);// wait for a user process to make claim
+	    
+for(r=0;r<20;r++)
+	for(p=0;p<18;p++) {
+		sm->rs[r].need[p] = sm->rs[r].request[p] - sm->rs[r].allocate[p];
+        sm->rs[r].need_copy[p] = sm->rs[r].request_copy[p] - sm->rs[r].allocate[p];
+
+}
+if(sm->process_running == 18) {
+	//signal(semID);
+	for(r=0;r<20;r++)
+		for(p=0;p<18;p++) {	
+		
+		//sm->rs[r].need[p] = sm->rs[r].request[p] - sm->rs[r].allocate[p];
+		//sm->rs[r].need_copy[p] = sm->rs[r].request_copy[p] - sm->rs[r].allocate[p];
+d221 9
+a229 9
+		//if the resource is shareable do not subtract instance
+		//freely distribute and update allocate and need structure
+		if(sm->rs[r].shareable == YES) {
+			sm->rs[r].allocate[p] += sm->rs[r].request[p];
+			sm->rs[r].need[p] -= sm->rs[r].request[p];
+			//update the copies as well
+			sm->rs[r].allocate_copy[p] += sm->rs[r].request_copy[p];
+			sm->rs[r].need_copy[p] -= sm->rs[r].request_copy[p];
+		}
+d231 19
+a249 11
+		//if request of process exceeds its need
+		else if(sm->rs[r].request_copy[p] > sm->rs[r].need_copy[p]) 
+			fprintf(stderr,"error: request exceeded need\n");
+
+		//if process request is smaller or equal to number of instance
+		//of a resource then allocate the copies then run dealock
+		//algorithm on the copies
+		else if(sm->rs[r].request[p] <= sm->rs[r].available[r]) {
+			sm->rs[r].available_copy[r] -= sm->rs[r].request_copy[p];
+			sm->rs[r].allocate_copy[p] += sm->rs[r].request_copy[p];
+			sm->rs[r].need_copy[p] -= sm->rs[r].request_copy[p];
+d251 20
+a270 2
+			//run deadlock algorithm
+			bool dl = deadlock(sm->rs[r].available_copy,20,18,sm->rs[r].request_copy,sm->rs[r].allocate_copy);
+a271 22
+			//fprintf(stderr,"dl is %d\n",dl);
+		
+			//if not deadlocked update original state of structures to that of
+			//its copy
+			if(dl == false) {	
+				sm->rs[r].available[r] = sm->rs[r].available_copy[r];
+				sm->rs[r].allocate[p] = sm->rs[r].allocate_copy[p];
+				sm->rs[r].need[p] = sm->rs[r].need_copy[p];
+				int inst = sm->rs[r].available[r]; 
+				fprintf(stderr,"allocated %d instance of resource %d to process %d\n",inst,r,p);
+			}
+
+			//if deadlock is true bring back to copy structure state back
+			//to the original state
+			else {
+				sm->rs[r].available_copy[r] = sm->rs[r].available[r];
+				sm->rs[r].allocate_copy[p] = sm->rs[r].allocate[p];
+				sm->rs[r].need_copy[p] = sm->rs[r].need[p];
+			}
+
+		}
+}}//for
+a273 2
+		usleep(0.01);
+		//sleep(1);
+a274 1
+	
+@
+
+
+1.5
+log
+@*** empty log message ***
+@
+text
+@d2 1
+a2 1
+/*$Date: 2016/04/05 05:57:54 $*/
+d4 3
+d27 2
+a28 1
+
+a32 1
+
+d34 6
+a40 2
+/********** Set up Shared Mem **********/
+	key_t shmkey = 100;
+d60 6
+a65 1
+	key_t semkey = 101;
+d75 1
+a75 1
+	int i, j;
+d89 3
+a91 3
+				
+		sm->rs[i].instance[i] = rand_gen(1,10);	//initialize instance
+		sm->rs[i].instance_copy[i] = sm->rs[i].instance[i];
+d101 3
+d113 28
+a142 2
+	pid_t pID;
+	
+a143 2
+
+	int index = 0; 
+d148 4
+a151 3
+		int rr = rand_gen(0,19); //generate a random resource (rr)	
+	
+		/* synchronize nanoseconds and seconds */
+d153 1
+a154 1
+			sm->lclock.nan = 0;
+d156 1
+d160 1
+a160 1
+			sm->rand_fork_time = rand_gen(1000000,500000000); //1-500 milliseconds
+d164 2
+a165 4
+		//fprintf(stderr,"%d\n",sm->rand_fork_time);
+		/* When time runs down to 0 fork */
+		if ((sm->rand_fork_time <= 0) && (wait_to_fork == YES)) {
+			//fprintf(stderr,"if randforktime <= 0 and waittofork = yes\n");
+d168 2
+a169 1
+				fprintf(stderr,"forking process %d\n",sm->process_running);
+d171 1
+d184 1
+a184 1
+
+a193 1
+		sm->rand_fork_time--;
+d195 15
+a209 1
+		for(i=0;i<18;i++) {
+d211 9
+a219 9
+			//if the resource is shareable do not subtract instance
+			//freely distribute and update allocate and need structure
+			if(sm->rs[rr].shareable == YES) {
+				sm->rs[rr].allocate[i] += sm->rs[rr].request[i];
+				sm->rs[rr].need[i] -= sm->rs[rr].request[i];
+				//update the copies as well
+				sm->rs[rr].allocate_copy[i] += sm->rs[rr].request_copy[i];
+				sm->rs[rr].need_copy[i] -= sm->rs[rr].request_copy[i];
+			}
+d221 14
+a234 11
+			//if request of process exceeds its need
+			else if(sm->rs[rr].request_copy[i] > sm->rs[rr].need_copy[i]) 
+				fprintf(stderr,"request exceeded need error\n");
+
+			//if process request is smaller or equal to number of instance
+			//of a resource then allocate the copies then run dealock
+			//algorithm on the copies
+			else if(sm->rs[rr].request[i] <= sm->rs[rr].instance[rr]) {
+				sm->rs[rr].instance_copy[rr] -= sm->rs[rr].request_copy[i];
+				sm->rs[rr].allocate_copy[i] += sm->rs[rr].request_copy[i];
+				sm->rs[rr].need_copy[i] -= sm->rs[rr].request_copy[i];
+d236 10
+a245 2
+				//run deadlock algorithm
+
+a246 3
+			
+			
+		}
+d248 6
+a253 82
+/*
+		for(k=0;k<20;k++) {
+            for(l=0;l<18;l++) {
+
+				if(sm->rs[i].shareable == YES) {
+                    sm->rs[i].instance[i] -= sm->rs[i].request[j];
+                    sm->rs[i].allocate[j] += sm->rs[i].request[j];
+                    sm->rs[i].need[j] -= sm->rs[i].request[j];
+                }
+				else if(sm->rs[i].request[j] > sm->rs[i].need[j]) {
+                    fprintf(stderr,"Asked for more than needed\n");
+                    //break;
+                }
+				else if(sm->rs[i].request[j] <= sm->rs[i].instance[i]) {
+                    sm->rs[i].instance[i] -= sm->rs[i].request[j];
+                    sm->rs[i].allocate[j] += sm->rs[i].request[j];
+                    sm->rs[i].need[j] -= sm->rs[i].request[j];
+				} 
+             }
+		}*/
+/*
+                bool dl = deadlock(sm->rs[i].instance, i, j, sm->rs[i].request, sm->rs[i].allocate);
+
+                if(dl == true) {
+					sm->rs[i].instance[i] += sm->rs[i].request[j];
+					sm->rs[i].allocate[j] -= sm->rs[i].request[j];
+					sm->rs[i].need[j] -= sm->rs[i].request[j];
+				}
+            }
+            
+        }   
+
+*/
+		/*//make the copies of the resource structures
+	    for(i=0;i<20;i++) {
+			for(j=0;j<18;j++) {
+           		sm->rs[i].request_copy[j] = sm->rs[i].request[j];
+           		sm->rs[i].allocate_copy[j] = sm->rs[i].allocate[j];
+           		sm->rs[i].need_copy[j] = sm->rs[i].need[j];
+           	}
+ 			sm->rs[i].instance_copy[i] = sm->rs[i].instance[i];
+		}*/
+		
+/*		
+		//bankers algorithm
+		for(i=0;i<20;i++) {
+			for(j=0;j<18;j++) {
+				//i is resource, j is process
+				if(sm->rs[i].request_copy[j] > sm->rs[i].need_copy[j]) {
+					fprintf(stderr,"Asked for more than needed\n");
+					break;
+				}
+
+				//if the resource i is shareable then give accordingly
+				if(sm->rs[i].shareable == YES) {
+					sm->rs[i].instance[i] -= sm->rs[i].request[j];
+					sm->rs[i].allocate[j] += sm->rs[i].request[j];
+					sm->rs[i].need[j] -= sm->rs[i].request[j];
+				}
+
+				//if request is less than instance give accordingly to a copy
+				else if(sm->rs[i].request_copy[j] <= sm->rs[i].instance_copy[i]) {
+					sm->rs[i].instance_copy[i] -= sm->rs[i].request_copy[j];
+					sm->rs[i].allocate_copy[j] += sm->rs[i].request_copy[j];
+					sm->rs[i].need_copy[j] -= sm->rs[i].request_copy[j];
+				
+					//Now use deadlock detection algorithm to see if the 
+					//new copy state is in deadlock
+					
+					bool dl = deadlock(sm->rs[i].instance_copy, i, j, sm->rs[i].request_copy, sm->rs[i].allocate_copy);
+
+					if(dl == true) {
+						//fprintf(stderr,"new state in deadlock\n");
+						break;
+					}
+				
+					else {
+						sm->rs[i].instance[i] = sm->rs[i].instance_copy[i];
+						sm->rs[i].allocate[j] = sm->rs[i].allocate_copy[j];
+						sm->rs[i].need[j] = sm->rs[i].need_copy[j];
+					}
+				}
+a254 1
+		}	
+d256 3
+a258 30
+
+
+
+		
+		//need array	
+		for(i=0;i<20;i++)
+			for(j=0;j<18;j++)
+				sm->rs[i].need[j] = sm->rs[i].request[j] - sm->rs[i].allocate[j];*/
+
+		/*makes decision to allocate
+		for(i=0;i<20;i++) {
+			for(j=0;j<18;j++) {
+				int request = sm->rs[i].request[j];
+				*if request is <= aailable instance, allocate*
+				if(request <= sm->rs[i].available && request != 0) {
+					fprintf(stderr,"allocating %d instance of resource %d "
+					"to process %d\n",request,i+1,j+1);
+					sm->rs[i].allocate[j] = request;
+					*update the available instance*
+					sm->rs[i].available-=request;
+				}
+				//else if(request > sm->rs[i].available
+				
+				else
+					fprintf(stderr,"not enough available instance\n");
+			}
+				
+		}*/
+		//fprintf(stderr,"rand time is %d\n",sm->rand_fork_time);
+		//sm->rand_fork_time-=1;
+d260 1
+a260 1
+		//usleep(100);
+d263 1
+a263 1
+
+@
+
+
+1.4
+log
+@*** empty log message ***
+@
+text
+@d2 1
+a2 1
+/*$Date: 2016/04/03 10:39:49 $*/
+d4 3
+a67 3
+			/*initialize process number for table of each resource*/
+			//sm->rs[i].activity[j][0] = i+1; //needed?
+			
+d70 1
+d72 1
+d74 1
+d77 3
+a79 1
+		sm->rs[i].res_desc = i+1;//not needed?
+a80 3
+				
+		sm->rs[i].instance = rand_gen(1,10);	//initialize instance
+		sm->rs[i].available = sm->rs[i].instance; //set available to == instance
+d102 1
+a102 5
+	static int wait_to_fork = NO;
+	unsigned int rand_fork_time;
+
+	int index = 0; //should it be shared????
+	int proc_num = 1;
+d104 1
+d107 4
+d116 1
+a116 1
+		//fprintf(stderr,"%ld:%ld\n",sm->lclock.sec,sm->lclock.nan);
+d119 2
+a120 1
+			rand_fork_time = rand_gen(1000000,500000000); //1-500 milliseconds
+d123 1
+a123 1
+
+d125 2
+a126 1
+		if (rand_fork_time == 0 && wait_to_fork == YES) {
+d129 1
+a129 1
+				fprintf(stderr,"forking process %d\n",proc_num);
+d140 3
+d144 4
+a147 2
+				index++;//should it be shared???
+			}
+d150 33
+a183 2
+			proc_num++;
+			wait_to_fork = NO;
+d185 66
+d252 24
+a275 1
+		/*need array*/	
+d278 1
+a278 1
+				sm->rs[i].need[j] = sm->rs[i].request[j] - sm->rs[i].allocate[j];
+d280 1
+a280 1
+		/*makes decision to allocate*/
+d284 1
+a284 1
+				/*if request is <= aailable instance, allocate*/
+d289 1
+a289 1
+					/*update the available instance*/
+d298 5
+a302 4
+		}
+
+		rand_fork_time--;
+		sm->lclock.nan++;	//increment clock by 1 nanosec each loop.
+@
+
+
+1.3
+log
+@*** empty log message ***
+@
+text
+@d2 1
+a2 1
+/*$Date: 2016/04/03 02:31:42 $*/
+d4 3
+d24 1
+d60 1
+a60 1
+	int i;
+d64 15
+a78 2
+		sm->rs[i].res_desc = i+1;				
+		sm->rs[i].available = rand_gen(1,10);	//initial instance
+d80 3
+a82 2
+			sm->rs[i].shareable = rand_gen(FALSE,TRUE);
+			share_counter--;
+d85 1
+a85 1
+			sm->rs[i].shareable = FALSE;
+d87 4
+d92 2
+a93 2
+	sm->lclock.seconds = 0;
+	sm->lclock.nano = 0;
+d100 1
+a100 1
+	static int wait_to_fork = FALSE;
+d103 2
+a104 2
+	int index;
+	int proc_num;
+d109 3
+a111 3
+		if (sm->lclock.nano = 1000000000) {
+			sm->lclock.seconds++;
+			sm->lclock.nano = 0;
+d113 1
+a113 1
+
+d115 1
+a115 1
+		if (wait_to_fork == FALSE) {
+d117 1
+a117 1
+			wait_to_fork = TRUE;
+d121 1
+a121 3
+		if (rand_fork_time == 0) {
+			wait_to_fork = FALSE;
+			//printf("done\n");
+d124 3
+a126 1
+				if ((pID = fork()) == -1) {
+d131 30
+a160 1
+					execl("./process","./process",NULL);
+d162 4
+d167 1
+a167 2
+					
+
+d171 2
+a172 1
+		sm->lclock.nano++;	//increment clock by 1 nanosec each loop.
+a174 8
+
+
+
+
+
+
+
+
+d176 1
+a176 1
+}
+@
+
+
+1.2
+log
+@*** empty log message ***
+@
+text
+@d2 1
+a2 1
+/*$Date: 2016/04/01 20:06:51 $*/
+d4 3
+d72 2
+d76 2
+d79 4
+a82 1
+	unsigned int rand_fork;
+d94 1
+a94 1
+			rand_fork = rand_gen(1000000,500000000); //1-500 milliseconds
+a96 2
+		
+		rand_fork--;
+d98 2
+a99 1
+		if (rand_fork == 0) {
+d101 13
+a113 1
+			printf("done\n");
+d115 2
+d118 1
+a118 1
+	}
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d1 6
+a6 3
+/*$Author:$*/
+/*$Date:$*/
+/*$Log:$*/
+d9 99
+@

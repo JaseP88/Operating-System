@@ -1,0 +1,187 @@
+head	1.4;
+access;
+symbols;
+locks
+	o-pham:1.4; strict;
+comment	@ * @;
+
+
+1.4
+date	2016.04.05.05.58.06;	author o-pham;	state Exp;
+branches;
+next	1.3;
+
+1.3
+date	2016.04.03.10.39.56;	author o-pham;	state Exp;
+branches;
+next	1.2;
+
+1.2
+date	2016.04.03.02.31.52;	author o-pham;	state Exp;
+branches;
+next	1.1;
+
+1.1
+date	2016.04.02.10.50.51;	author o-pham;	state Exp;
+branches;
+next	;
+
+
+desc
+@@
+
+
+1.4
+log
+@*** empty log message ***
+@
+text
+@/*$Author: o-pham $*/
+/*$Date: 2016/04/03 02:31:52 $*/
+/*$Log: resource.h,v $
+ *Revision 1.2  2016/04/03 02:31:52  o-pham
+ **** empty log message ***
+ *
+ *Revision 1.1  2016/04/02 10:50:51  o-pham
+ *Initial revision
+ *
+ *Revision 1.1  2016/04/01 20:06:58  o-pham
+ *Initial revision
+ **/
+
+#define YES 1
+#define NO 0
+
+/******* the resource structure *********/
+typedef struct resource_structure {
+	int res_desc;	//resource descriptor number
+	int instance;
+	int available;	//available amount of resource 
+	int shareable;	//shareable or nonshareable
+	int request[17];
+	int allocate[17];
+	int need[17];	
+	//int activity[17][3];
+} resource_descriptor;
+
+/********** Process Structure *************/
+typedef struct process_structure {
+	//int process_num;
+	//int resource_need;
+	//int amount;
+	unsigned int waiting_time;
+	unsigned int turnaround_time;
+	unsigned cpu_util;
+	unsigned throughput;
+} process;
+
+
+/******* The shared memory structure ******/
+typedef struct shared_memory_structure {
+	resource_descriptor rs[19];
+	process p[18];	
+	int process_running;
+	int taken[17]; //boolean array to see if the activity array is taken or no
+	//Logical clock
+	struct logical_clock {
+		unsigned int sec;
+		unsigned int nan;
+	} lclock;
+
+} s_m; 
+
+
+
+int rand_gen(int,int);
+int seminit(int,int,int);
+void dead(int,int,s_m);
+@
+
+
+1.3
+log
+@*** empty log message ***
+@
+text
+@d14 2
+a15 2
+#define TRUE 1
+#define FALSE 0
+d20 1
+d23 4
+a26 1
+	int activity[19][2];
+d31 3
+a33 3
+	int process_num;
+	int resource_need;
+	int amount;
+d38 1
+a38 1
+} process_info;
+d44 1
+a44 1
+	process_info p[17];	
+d46 1
+a46 1
+
+d49 2
+a50 2
+		unsigned int seconds;
+		unsigned int nano;
+d59 1
+a59 1
+//void add_req(int,int);
+@
+
+
+1.2
+log
+@*** empty log message ***
+@
+text
+@d2 1
+a2 1
+/*$Date: 2016/04/02 10:50:51 $*/
+d4 3
+d28 2
+d40 2
+a41 1
+	process_info p[19];	
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d2 5
+a6 2
+/*$Date: 2016/04/01 20:06:58 $*/
+/*$Log: header.h,v $
+d11 2
+a12 2
+#define TRUE 1;
+#define FALSE 0;
+d18 2
+a19 4
+	int sharable;	//shareable or nonshareable
+	int request;	//contain the process number that requested resource
+	int allocate;	//contain the process number that acquired resource
+	int release;	//
+d22 8
+a29 6
+/******* request structure **********/
+typedef struct request_structure {
+	int process;	//contain the process number that requested
+	int amount; 	//amount of resource process is requesting
+	request *next;
+} request;
+d34 3
+a36 2
+	resource_descriptor rs[20];
+	
+d42 1
+d44 6
+@

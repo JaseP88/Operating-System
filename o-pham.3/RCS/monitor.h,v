@@ -1,0 +1,88 @@
+head	1.2;
+access;
+symbols;
+locks
+	o-pham:1.2; strict;
+comment	@ * @;
+
+
+1.2
+date	2016.03.08.17.02.47;	author o-pham;	state Exp;
+branches;
+next	1.1;
+
+1.1
+date	2016.03.07.21.58.15;	author o-pham;	state Exp;
+branches;
+next	;
+
+
+desc
+@@
+
+
+1.2
+log
+@*** empty log message ***
+@
+text
+@
+/* structure for condition variable
+ * implement shared mem with condition variable
+*/
+typedef struct data_struct{
+	int num_waiting;
+	int next_count;
+} condition_var;
+
+/* struct the operation named WAIT and SIGNAL */
+struct sembuf WAIT;
+struct sembuf SIGNAL;
+
+/* contains the semaphores that will be used
+ * in the semaphore set 
+*/
+enum {mutex, next, sem} condition_sem;
+
+/* function to initialize semaphores in the semaphore set */
+int initelement(int,int,int);
+
+/* functions do the necessary semaphore locking wait mechanism */
+void Pwait(int);
+void Vsignal(int);
+
+/* condition functions in the monitor */
+void cwait(int);
+void csignal(int);
+
+
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d10 3
+a12 8
+
+/* for semctl 
+union semun {
+	int val;
+	struct semid_ds *buf;
+	ushort *array;
+} arg;
+*/
+d17 1
+a17 1
+enum {mutex, next, sem} sems;
+d19 2
+d22 3
+a24 2
+int initelement(int,int,int);
+void setsembuf(struct sembuf, int, int, int);
+d26 1
+a26 1
+/* functions in the monitor */
+@

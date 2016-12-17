@@ -1,0 +1,52 @@
+head	1.1;
+access;
+symbols;
+locks
+	o-pham:1.1; strict;
+comment	@ * @;
+
+
+1.1
+date	2016.04.01.20.06.58;	author o-pham;	state Exp;
+branches;
+next	;
+
+
+desc
+@@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@/*$Author:$*/
+/*$Date:$*/
+/*$Log:$*/
+
+#define TRUE 1;
+#define FALSE 0;
+
+/******* the resource structure *********/
+typedef struct resource_structure {
+	int res_desc;	//resource descriptor number
+	int amount;		//amount of resource available
+	int sharable;	//shareable or nonshareable
+	int *request;	//contain the process number that requested resource
+	int *allocate;	//contain the process number that acquired resource
+	int *release;	//
+} resource_descriptor;
+
+
+/******* The shared memory structure ******/
+typedef struct shared_memory_structure {
+	resource_descriptor rs[20];
+	
+	//Logical clock
+	struct logical_clock {
+		unsigned int seconds;
+		unsigned int nano;
+	} lclock;
+} s_m; 
+@

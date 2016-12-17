@@ -1,0 +1,595 @@
+head	1.6;
+access;
+symbols;
+locks
+	o-pham:1.6; strict;
+comment	@ * @;
+
+
+1.6
+date	2016.04.12.06.00.18;	author o-pham;	state Exp;
+branches;
+next	1.5;
+
+1.5
+date	2016.04.11.03.43.37;	author o-pham;	state Exp;
+branches;
+next	1.4;
+
+1.4
+date	2016.04.08.00.55.42;	author o-pham;	state Exp;
+branches;
+next	1.3;
+
+1.3
+date	2016.04.05.07.57.09;	author o-pham;	state Exp;
+branches;
+next	1.2;
+
+1.2
+date	2016.04.05.05.57.58;	author o-pham;	state Exp;
+branches;
+next	1.1;
+
+1.1
+date	2016.04.03.10.39.33;	author o-pham;	state Exp;
+branches;
+next	;
+
+
+desc
+@@
+
+
+1.6
+log
+@need tweaks
+@
+text
+@/*$Author: o-pham $*/
+/*$Date: 2016/04/11 03:43:37 $*/
+/*$Log: process.c,v $
+ *Revision 1.5  2016/04/11 03:43:37  o-pham
+ **** empty log message ***
+ *
+ *Revision 1.4  2016/04/08 00:55:42  o-pham
+ *forks fine
+ *randomizaton good
+ *
+ *Revision 1.3  2016/04/05 07:57:09  o-pham
+ **** empty log message ***
+ *
+ *Revision 1.2  2016/04/05 05:57:58  o-pham
+ **** empty log message ***
+ *
+ *Revision 1.1  2016/04/03 10:39:33  o-pham
+ *Initial revision
+ **/
+
+#include "resource.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <sys/sem.h>
+#include <sys/shm.h>
+#include <time.h>
+#include <signal.h>
+s_m *shared_struct;
+
+// PROCESS.C
+int main(int argc, char *argv[]) {
+	srand(time(NULL));
+/*********** Set up Shared Memory *************/
+	key_t shmkey;
+	if ((shmkey = ftok("/classes/OS/o-pham/o-pham.5",100)) == (key_t)-1) {
+        perror("ftok error");
+        exit(1);
+    }
+    int shmID;
+    s_m *sm;
+
+    shmID = shmget(shmkey,sizeof(s_m),IPC_CREAT | 0666);
+    if (shmID<0) {
+        perror("shmget failed");
+        exit(1);
+    }
+
+    sm = (s_m *)shmat(shmID,(void *)0,0);
+    if (sm<(s_m *)(0)) {
+        perror("shmat failed");
+        exit(1);
+    }
+
+    shared_struct = sm;
+
+/*********** Set up Semaphore ***************/
+
+    int semID;
+    key_t semkey;
+	if ((semkey = ftok("/classes/OS/o-pham/o-pham.5",101)) == (key_t)-1) {
+        perror("ftok error");
+        exit(1);
+    }
+    semID = semget(semkey,2,IPC_CREAT | 0666);
+    if (semID<0) {
+        perror("semget failed");
+        exit(1);
+    }
+/*********** Initialize Process ************/
+	
+	int proc = sm->p_num;
+	int p = atoi(argv[1]); //index argument passed in oss.c
+	int i, r, request, max_claim;
+	unsigned int start_time_sec = sm->lclock.sec;
+    unsigned int start_time_nan = sm->lclock.nan;	
+
+  	fprintf(stderr,"process %d forked at %d:%09d\n",sm->p_num,sm->lclock.sec,sm->lclock.nan);
+
+	for(r=0;r<20;r++) {
+		//generate a request for each resources 
+		//instances in the system
+		max_claim = rand_gen(0,sm->rs[r].instance);
+		sm->rs[r].max[p] = max_claim;
+		sm->rs[r].maxC[p] = max_claim;
+
+		sm->rs[r].req[p] = max_claim;
+		sm->rs[r].reqC[p] = max_claim;
+	}
+
+	//semsignal(semID,0);// signal oss to run
+/*********** Start Loop Simulation *********/
+	int terminate; 		//boolean test var to terminate or not
+	int wait_to_fork = NO; 	//boolean test var 
+	unsigned int one_sec_up = start_time_sec+1;
+	unsigned int rand_res_req_time;
+	unsigned int current_time_sec, current_time_nan;
+	unsigned int sec_to_req, nan_to_req, nan_leftover;
+
+	for(;;) {
+		int res_counter = 0;		
+		//update logical clock//
+		if(sm->lclock.nan >= 999999999) {
+			sm->lclock.nan = 0;
+			sm->lclock.sec++;
+			fprintf(stderr,"%d second\n",sm->lclock.sec);
+		}	
+		//fprintf(stderr,"C%ld:%ld\n",sm->lclock.sec,sm->lclock.nan);
+	
+		//generate to determined if to terminate or no
+		terminate = rand_gen(NO,YES);		
+
+		//checks to see if oss allocated desired amount of resources
+		//if so release the resources refilling the available array
+		//and resetting request and allocate array back to 0 for another
+		//process to use. Then exit
+		for(r=0;r<20;r++) 	
+			if(sm->rs[r].allo[p] == sm->rs[r].max[p]) {
+				//add a counter for every full resource this process has
+				//if the counter is 20 then it means this process
+				//has all necessary requested resources allocated to it
+				res_counter++;
+			}
+
+		if(res_counter == 20) {
+			fprintf(stderr,"process %d got all of resource, releasing it now\n",proc);
+			for(r=0;r<20;r++) {
+				sm->rs[r].req[p] = 0;
+				sm->rs[r].reqC[p] = 0;
+				
+				sm->rs[r].avail[p] += sm->rs[r].max[p];
+				sm->rs[r].availC[p] += sm->rs[r].maxC[p];
+				
+				sm->rs[r].max[p] = 0;
+				sm->rs[r].maxC[p] = 0;
+				sm->rs[r].allo[p] = 0;
+				sm->rs[r].alloC[p] = 0;
+			}
+			sm->taken[p] = NO;
+			--sm->process_running;//=-1;
+			//add completion time********
+			//add throughput and its turnaround time before exit
+			sm->throughput+=1;
+			sm->p[p].turna_time_s = (sm->lclock.sec - start_time_sec);
+			sm->p[p].turna_time_n = (sm->lclock.nan - start_time_nan);
+			//fprintf(stderr,"proc running is %d\n",sm->process_running);
+			exit(1);
+		}	
+
+		//if one second has passed sinced forked and terminate bool is Yes then 
+		//release the resources
+		if((sm->lclock.sec >= start_time_sec+1) && (sm->lclock.nan >= start_time_nan) && (terminate == YES)) {
+			fprintf(stderr,"process %d is terminating, releasing resources\n",proc);
+			for(r=0;r<20;r++) {
+				sm->rs[r].max[p] = 0;
+				sm->rs[r].maxC[p] = 0;
+
+				sm->rs[r].req[p] = 0;
+				sm->rs[r].reqC[p] = 0;
+
+				sm->rs[r].avail[p] += sm->rs[r].allo[p];
+				sm->rs[r].availC[p] += sm->rs[r].alloC[p];
+
+				sm->rs[r].allo[p] = 0;
+				sm->rs[r].alloC[p] = 0;	
+		}
+			sm->taken[p] = NO;
+			--sm->process_running;// =-1;
+			sm->throughput+=1;
+            sm->p[p].turna_time_s = (sm->lclock.sec - start_time_sec);
+            sm->p[p].turna_time_n = (sm->lclock.nan - start_time_nan);
+			exit(1);
+		}
+
+		//if it does not termiate process request for random amount resource.
+		else if((sm->lclock.sec >= start_time_sec+1) && (terminate == NO)) {
+			
+			for(r=0;r<20;r++) {
+				//fprintf(stderr,"process is requesting...\n");
+				//requesting a random amount between 0 and max-allocate
+				request = rand_gen(0,sm->rs[r].max[p]-sm->rs[r].allo[p]);
+				sm->rs[r].req[p] = request;
+				sm->rs[r].reqC[p] = request;
+				sm->p[p].waiting_time_n-=1; //if it runs this it is not waiting
+			}
+		}	
+
+		if(sm->p[p].waiting_time_n >= 999999999) { //sync the waiitng time 
+			sm->p[p].waiting_time_s++;
+			sm->p[p].waiting_time_n =0;
+		}
+		sm->p[p].waiting_time_n+=1;//process is mainly waiting for resources eachloop
+		sm->rand_fork_time-=1;//for use in oss.c
+		sm->lclock.nan+=1; //increment logic clock by 1 nanosec
+	}//loop block
+
+return 0;
+}//PROCESS.C
+@
+
+
+1.5
+log
+@*** empty log message ***
+@
+text
+@d2 1
+a2 1
+/*$Date: 2016/04/08 00:55:42 $*/
+d4 3
+d71 2
+a72 1
+
+d78 1
+a78 1
+  	fprintf(stderr,"process %d forked at %d:%09d\n",p+1,sm->lclock.sec,sm->lclock.nan);
+d85 1
+a85 1
+		//sm->rs[r].maxC[p] = max_claim;
+d91 1
+a91 1
+	signal_(semID,0);// signal oss to run
+d126 1
+a126 1
+			fprintf(stderr,"process %d got all of resource, releasing it now\n",p+1);
+d129 2
+d132 4
+d137 1
+d140 1
+a140 1
+			sm->process_running=-1;
+d142 5
+d152 2
+a153 2
+		if((sm->lclock.sec >= start_time_sec+1) && (terminate == YES)) {
+			fprintf(stderr,"process %d is terminating, releasing resources\n",p+1);
+d156 2
+d159 2
+d162 2
+d165 2
+a166 1
+			}
+d168 4
+a171 2
+			sm->process_running =-1;
+			//should completion time be added?********
+d173 1
+a173 6
+}
+		//else if((sm->lclock.sec >= start_time_sec+1) && (terminate == NO)) {
+					
+
+
+
+d175 2
+d178 8
+a185 10
+		/*check allocation array if allocated instance == request then release*/
+/*
+		int allocated_inst = sm->rs[resource].allocate[process];
+		if(allocated_inst == request) {//need
+			fprintf(stderr,"got all resource, releasing them now\n");
+			//update available array as well
+			sm->rs[resource].request[process] = 0;
+			sm->rs[resource].allocate[process] = 0;
+			sm->rs[resource].instance[resource]+=allocated_inst; //fill available up
+			//sm->taken[index] = NO;
+d187 6
+a192 1
+*/		
+@
+
+
+1.4
+log
+@forks fine
+randomizaton good
+@
+text
+@d2 1
+a2 1
+/*$Date: 2016/04/05 07:57:09 $*/
+d4 4
+d25 1
+d62 1
+a62 1
+    semID = semget(semkey,1,IPC_CREAT | 0666);
+d67 1
+a67 1
+	
+a68 1
+/*********** Initialize Process ************/
+d70 1
+a70 1
+	int i, r, request;
+d74 1
+a74 1
+	    fprintf(stderr,"process %d forked at %d:%09d\n",p,sm->lclock.sec,sm->lclock.nan);
+d79 3
+a81 4
+		request = rand_gen(1,sm->rs[r].instance);
+		sm->rs[r].request[p] = request;
+		sm->rs[r].request_copy[p] = request;
+	}
+d83 2
+a84 3
+	fprintf(stderr,"process %d needs\n",p);
+	for(i=0;i<20;i++) {
+		fprintf(stderr,"%d instance of resource %d\n",sm->rs[i].request[p],i);
+d87 1
+a87 5
+	
+	//signal oss to run algorithm
+	//signal(semID);
+
+
+d97 1
+a97 2
+		//wait(semID);
+			
+d99 1
+a99 1
+		if(sm->lclock.nan == 1000000000) {
+d102 1
+d105 1
+a105 1
+		
+a108 1
+
+d113 14
+a126 10
+		for(r=0;r<20;r++) {	
+			if(sm->rs[r].allocate[p] == sm->rs[r].request[p]) {
+				fprintf(stderr,"process %d got all the resources needed, releasing them now\n",p);
+				sm->rs[r].request[p] = 0;
+				sm->rs[r].available[p] += sm->rs[r].allocate[p];
+				sm->rs[r].allocate[p] = 0;
+				sm->taken[p] = NO;
+				sm->process_running--;
+				//add completion time********
+				exit(1);
+d128 5
+a132 1
+		}
+d137 1
+a137 1
+			fprintf(stderr,"process %d is terminating, releasing resources\n",p);
+d139 4
+a142 7
+				sm->rs[r].request[p] = 0;
+				sm->rs[r].available[p] += sm->rs[r].allocate[p];
+				sm->rs[r].allocate[p] = 0;
+				sm->taken[p] = NO;
+				sm->process_running--;
+				//should completion time be added?********
+				exit(1);
+d144 5
+a148 1
+		}
+a154 30
+
+
+
+
+
+
+
+
+
+
+
+
+		//update need array for this process
+		sm->rs[r].need[p] = sm->rs[r].request[p] - sm->rs[r].allocate[p];		
+		sm->rs[r].need_copy[p] = sm->rs[r].request_copy[p]-sm->rs[r].allocate_copy[p];		
+
+		/*//if 1 second passed by generate boolean test terminate
+		if(sm->lclock.sec >= one_sec_up && wait_to_fork == NO) {
+			
+			//deallocate request and allocate array
+			fprintf(stderr,"process %d is terminating\n",index+1);
+			//update available array as well!!
+			sm->rs[resource].request[index] = 0;
+			sm->rs[resource].allocate[index] = 0;
+			sm->rs[resource].need[index] = 0;
+			sm->taken[index] = NO;
+			exit(1);
+			//add throughput here
+		}
+		*/
+a169 2
+		usleep(0.01);
+		//sleep(1);
+@
+
+
+1.3
+log
+@*** empty log message ***
+@
+text
+@d2 1
+a2 1
+/*$Date: 2016/04/05 05:57:58 $*/
+d4 3
+d20 1
+a20 1
+
+d25 1
+a25 1
+
+d27 5
+a31 1
+	key_t shmkey = 100;
+d52 5
+a56 1
+    key_t semkey = 101;
+d62 1
+d65 20
+a84 2
+	int index = atoi(argv[1]); //index argument passed in oss.c
+	int resource, request;
+d86 2
+a87 2
+	/*generate resource descriptor*/
+	resource = rand_gen(0,19);//mayb no need
+a88 4
+	/*request maximum claim*/
+	request = rand_gen(1,sm->rs[resource].instance);
+	/*put request amount into resource activity table*/
+	sm->rs[resource].request[index] = request;
+a89 3
+	unsigned int start_time_sec = sm->lclock.sec;
+	unsigned int start_time_nan = sm->lclock.nan;
+	
+d93 1
+a93 1
+	unsigned int one_sec_up = start_time_sec+3;
+d99 3
+a101 1
+		/*update logical clock*/
+d103 1
+d105 20
+a124 14
+			sm->lclock.nan = 0;
+		}		
+
+		/*if 1 second passed by generate boolean test terminate*/
+		if(sm->lclock.sec >= one_sec_up && wait_to_fork == NO) {
+			terminate = rand_gen(NO,YES);	
+			
+			if(terminate == YES) {
+				//deallocate request and allocate array
+				fprintf(stderr,"process %d is terminating\n",index+1);
+				sm->rs[resource].request[index] = 0;
+				sm->rs[resource].allocate[index] = 0;
+				sm->rs[resource].need[index] = 0;
+				sm->taken[index] = NO;
+a125 1
+				//add throughput here
+d127 1
+d129 12
+a140 5
+			else { //wait between 0-250ms to ask for another resource
+				rand_res_req_time = rand_gen(0,250000000);
+				wait_to_fork = YES;
+				current_time_sec = sm->lclock.sec;
+				current_time_nan = sm->lclock.nan;
+d143 21
+a163 11
+	
+		if(wait_to_fork == YES) {
+			/*set up the nano time of when to request for resource */
+			nan_to_req = current_time_nan+rand_res_req_time;
+			sec_to_req = current_time_sec;
+			/*if the time overflow add to second and assign leftover to nano*/
+			if(nan_to_req >= 1000000000) {
+				sec_to_req = current_time_sec+1;
+				nan_leftover = nan_to_req - 1000000000;
+				nan_to_req = nan_leftover;
+			}
+d165 12
+a176 10
+			if(sm->lclock.sec == sec_to_req && sm->lclock.nan == nan_to_req) {
+				//request resource here
+				/*generate resource descriptor*/
+    			resource = rand_gen(0,19);
+    			/*generate request amount*/
+    			request = rand_gen(1,sm->rs[resource].instance);
+    			/*put request amount into resource activity table*/
+				sm->rs[resource].request[index] = request;
+				sm->taken[index] = YES;
+			}
+d178 1
+d181 3
+a183 4
+		//should i use need instead of request array
+
+		int allocated_inst = sm->rs[resource].allocate[index];
+		if(allocated_inst == request) {
+d185 5
+a189 4
+			sm->rs[resource].request[index] = 0;
+			sm->rs[resource].allocate[index] = 0;
+			sm->rs[resource].available+=allocated_inst; //fill available up
+			sm->taken[index] = NO;
+d191 5
+a195 2
+	
+		sm->lclock.nan++; //increment logic clock by 1 nanosec
+@
+
+
+1.2
+log
+@*** empty log message ***
+@
+text
+@d2 1
+a2 1
+/*$Date: 2016/04/03 10:39:33 $*/
+d4 3
+a55 2
+	sm->process_running+=1; //increase the number of process running
+
+a62 1
+	sm->taken[index] = YES;
+d76 6
+d140 1
+a140 1
+
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d1 6
+a6 3
+/*$Author:$*/
+/*$Date:$*/
+/*$Log:$*/
+d15 1
+d17 122
+@

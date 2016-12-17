@@ -1,0 +1,26 @@
+Jason Pham
+Operating System HW 2
+
+There is two executables
+master and slave
+
+type: make all
+	to make the 2 executables
+
+type: make clean
+	to clean up the executable and object files
+
+After getting the 2 executable master and slave 
+type: ./master
+	to run both
+
+
+the master program creates a fan of 19 child processes with fork
+using exec, child processes enters race condition to write into a file called cstest
+
+master cleans up any shared memory after termination from max writes, interrupts
+or timer
+
+master also handles termination of child processes by waiting on them
+
+

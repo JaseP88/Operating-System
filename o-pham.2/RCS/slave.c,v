@@ -1,0 +1,354 @@
+head	1.6;
+access;
+symbols;
+locks
+	o-pham:1.6; strict;
+comment	@ * @;
+
+
+1.6
+date	2016.02.24.06.34.20;	author o-pham;	state Exp;
+branches;
+next	1.5;
+
+1.5
+date	2016.02.20.05.07.11;	author o-pham;	state Exp;
+branches;
+next	1.4;
+
+1.4
+date	2016.02.19.23.33.29;	author o-pham;	state Exp;
+branches;
+next	1.3;
+
+1.3
+date	2016.02.18.23.43.47;	author o-pham;	state Exp;
+branches;
+next	1.2;
+
+1.2
+date	2016.02.18.09.57.07;	author o-pham;	state Exp;
+branches;
+next	1.1;
+
+1.1
+date	2016.02.18.09.32.03;	author o-pham;	state Exp;
+branches;
+next	;
+
+
+desc
+@program called slave to write into the file cstest
+@
+
+
+1.6
+log
+@finished version
+@
+text
+@#include <stdio.h>
+#include <time.h>
+#include <stdlib.h>
+#include "header.h"
+#include <unistd.h>
+#include <sys/shm.h>
+#include <signal.h>
+
+
+p_s *ps;	//shared memory
+
+int main (int argc, char *argv[]) {
+
+	int pn = atoi(argv[1]);	// get process number from argument
+	int pn_index = pn -1;	// changes process number to use as index flag array
+
+	int shmid;
+	key_t key = 100;
+	p_s *shm_ps;
+
+	// create the shared memory
+	shmid = shmget(key, sizeof(p_s), IPC_CREAT | 0666);
+	if (shmid < 0) {
+		perror("shmget failed\n");
+		exit(1);
+	}
+
+	// attach shared memory with shm_ps
+	shm_ps = (p_s *)shmat(shmid, (void *)0, 0);
+	if (shm_ps == (p_s *)(-1)) {
+		perror("shmat failed\n");
+		exit(1);
+	}
+	
+	ps = shm_ps;
+	
+	// call the process function to begin determining which slave process
+	process(pn_index);
+
+	
+	
+	/*printf("Hi i am process # %d, my pid is %ld and my parent "
+		"pid is %ld\n", pn, (long)getpid(), (long)getppid());
+	
+	while(1);
+	*/
+
+	return 0;
+}
+
+
+// this function writes the message into cstest
+void writeToFile (int process_number) {
+	time_t	epoch_time;
+	struct tm *tm_p;
+	epoch_time = time(NULL);
+	tm_p = localtime(&epoch_time);
+
+	FILE *fp;
+	int p_n = process_number; // process number
+
+
+	if ( (fp = fopen("cstest", "a")) == NULL) {
+		perror("Error opening file");
+	}
+	
+	fprintf(fp, "File modified by process number %d at time "
+		"%.2d:%.2d:%.2d\n", p_n, tm_p-> tm_hour, tm_p-> tm_min, tm_p-> tm_sec);
+
+	fclose(fp);
+}
+
+void process (const int i) {
+
+	int numOfWrites = 0;
+	int slave_num = i+1;
+	time_t  epoch_time;
+    struct tm *t;
+    epoch_time = time(NULL);
+    t = localtime(&epoch_time);
+	int j;
+		
+	do {
+		fprintf(stderr,"Slave %d is executing code to enter CS %.2d:%.2d:%.2d"
+			"\n", slave_num, t->tm_hour, t->tm_min, t->tm_sec);
+		do {
+			ps-> flag[i] = want_in;
+			j = ps-> turn;
+			while (j != i) 
+				j = (ps-> flag[j] != idle) ? ps-> turn : (j+1)%19;
+			
+			ps-> flag[i] = in_cs;
+
+			for (j = 0; j < 19; j++)
+				if ((j != i) && (ps-> flag[j] == in_cs)) 
+					break;
+		}
+		while ((ps-> turn != i && ps-> flag[ps-> turn] != idle) || j < 19);
+		
+		// check max writes if 3 then set that flag to idle and kill child process
+		if (numOfWrites == 3) {
+			ps->flag[i] = idle;
+            fprintf(stderr,"slave %d achieved maxwrite, gonna die now\n",slave_num);
+            kill(getpid(),SIGTERM);
+			exit(0);
+        }
+
+		ps-> turn = i;
+
+		// Entering the critical section
+		fprintf(stderr,"Slave:%d ENTERING CRIT SECTION %.2d:%.2d:%.2d"
+			"\n",slave_num, t->tm_hour, t->tm_min, t->tm_sec);
+		sleep(1);
+		writeToFile(slave_num);	// writing onto the valuable resource
+		fprintf(stderr,"Slave:%d ***LEAVING CRIT SECTION %.2d:%.2d:%.2d"
+			"\n",slave_num, t->tm_hour, t->tm_min, t->tm_sec);
+		sleep(1);
+		
+		j = (ps-> turn+1)%19;
+		while (ps-> flag[j] == idle)
+			j = (j+1)%19;
+
+		ps-> turn = j;
+
+		ps-> flag[i] = idle;
+
+        // Remainder Section
+		numOfWrites++;	//increment the max number of writes so far
+
+	}
+	while (1);
+}
+
+
+@
+
+
+1.5
+log
+@added stderr messages
+@
+text
+@d7 2
+d16 1
+a37 1
+	// going in to critical section
+d40 2
+d44 2
+d74 3
+a76 1
+	int slave_num = i +1;
+d82 1
+a82 1
+
+d84 2
+a85 3
+		fprintf(stderr,"slave %d pid: %ld executing process function at "
+			"%.2d:%.2d:%.2d\n", slave_num, (long)getpid(), t-> tm_hour, t-> tm_min, t-> tm_sec);
+		
+d88 3
+a91 4
+			j = ps-> turn;
+			while (j != i)
+				j = (ps-> flag[j] != idle) ? ps-> turn : (j+1)%18;
+
+d94 2
+a95 2
+			for (j = 0; j < 18; j++)
+				if ((j != i) && (ps-> flag[j] == in_cs))
+d98 9
+a106 1
+		while ((j < 18) || (ps-> turn != i) && (ps-> flag[ps-> turn] != idle));
+d109 9
+d119 3
+a121 1
+		critical_section(slave_num);	//critical section
+d123 1
+a123 3
+		j = (ps-> turn +1)%18;	
+		while (ps-> flag[j] == idle);
+			j = (j+1)%18;
+a124 1
+		ps-> turn = j;
+d126 4
+a129 2
+		
+		// remainder section
+a133 16
+// critical section function			
+void critical_section (int process_number) {
+	int pn = process_number;	
+	
+	time_t  epoch_time;
+    struct tm *t;
+    epoch_time = time(NULL);
+    t = localtime(&epoch_time);
+	fprintf(stderr,"****slave %d pid %ld inside critical section at %.2d:%.2d"
+		"%.2d\n", pn, (long)getpid(), t-> tm_hour, t-> tm_min, t-> tm_sec);
+
+	sleep(2);
+	writeToFile(pn);
+	sleep(2);
+	fprintf(stderr,"****slave %d pid %ld leaving critical section at %.2d:%.2d"
+        "%.2d\n", pn, (long)getpid(), t-> tm_hour, t-> tm_min, t-> tm_sec);
+a134 1
+}
+@
+
+
+1.4
+log
+@move ciriticalsection to slave
+@
+text
+@d34 3
+a36 7
+	process(pn_index);	
+
+
+
+
+
+
+a41 1
+//	while (1) {}
+d46 1
+a46 1
+
+d54 1
+a54 1
+	int p_n = process_number+1; // process number
+a55 1
+	//p_n = atoi(argv[1]);	
+a58 1
+		//return -1;
+d68 5
+d74 1
+d76 3
+d81 1
+d95 2
+a97 4
+		//critical section
+		sleep(1);
+		writeToFile(i);
+		sleep(1);
+a108 1
+			
+d110 16
+d127 1
+@
+
+
+1.3
+log
+@currently working
+@
+text
+@d4 3
+d8 1
+d11 42
+d59 1
+a59 1
+	int p_n; // process number
+d61 1
+a61 1
+	p_n = atoi(argv[1]);	
+d65 1
+a65 1
+		return -1;
+d69 1
+a69 1
+		"%.2d:%.2d\n", p_n, tm_p-> tm_hour, tm_p-> tm_min);
+d72 1
+a72 2
+	return 0;
+
+d74 35
+a110 1
+}
+@
+
+
+1.2
+log
+@added fprint to print to cstest
+@
+text
+@d5 1
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d3 1
+a9 1
+	
+d11 4
+a14 1
+	printf("The time exe is %.2d:%.2d\n", tm_p-> tm_hour, tm_p-> tm_min);
+d16 7
+d24 2
+@
